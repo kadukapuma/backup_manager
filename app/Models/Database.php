@@ -74,9 +74,10 @@ class Database extends Model
     /** @return HasOne<BackupFile, $this> */
     public function latestSuccessfulBackup(): HasOne
     {
-        return $this->hasOne(BackupFile::class)
-            ->where('status', BackupFileStatus::Success->value)
-            ->latestOfMany();
+        return $this->hasOne(BackupFile::class)->ofMany(
+            ['id' => 'max'],
+            fn ($query) => $query->where('status', BackupFileStatus::Success->value),
+        );
     }
 
     /**

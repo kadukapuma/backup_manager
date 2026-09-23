@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\NotificationChannelType;
-use App\Enums\NotificationEvent;
 use Database\Factories\NotificationChannelFactory;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -36,14 +34,6 @@ class NotificationChannel extends Model
             'events' => 'array',
             'is_active' => 'boolean',
         ];
-    }
-
-    /**
-     * @param  Builder<NotificationChannel>  $query
-     */
-    public function scopeSubscribedTo(Builder $query, NotificationEvent $event): void
-    {
-        $query->where('is_active', true)->whereJsonContains('events', $event->value);
     }
 
     /**
