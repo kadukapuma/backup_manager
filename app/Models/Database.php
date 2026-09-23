@@ -90,6 +90,15 @@ class Database extends Model
 
     public function lockKey(): string
     {
-        return 'bm:db:'.$this->connection_id.':'.$this->name;
+        return self::lockKeyFor($this->connection_id, $this->name);
+    }
+
+    /**
+     * Shared by backups, retention and restores so only one of them touches a
+     * database at a time, even for databases not (yet) in the catalog.
+     */
+    public static function lockKeyFor(int $connectionId, string $name): string
+    {
+        return 'bm:db:'.$connectionId.':'.$name;
     }
 }

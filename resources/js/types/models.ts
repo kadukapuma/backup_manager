@@ -125,3 +125,27 @@ export interface RunFileRow {
     copies: CopyRow[];
     verifications: VerificationRow[];
 }
+
+export interface RestoreRow {
+    id: number;
+    status: RestoreStatusValue;
+    progress_message: string | null;
+    mode: RestoreModeValue;
+    source_database: string;
+    backup_filename: string | null;
+    backup_created_at: string;
+    target_connection: string;
+    target_database: string;
+    requested_by: string | null;
+    created_at: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+    error: string | null;
+}
+
+export interface RestoreDetail extends RestoreRow {
+    log: string | null;
+    post_check: { expected_tables: number | null; actual_tables: number; ok: boolean } | null;
+    source_destination: string | null;
+    safety_backup: { filename: string | null; run_id: number } | null;
+}

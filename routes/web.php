@@ -7,6 +7,7 @@ use App\Http\Controllers\BackupRunController;
 use App\Http\Controllers\ConnectionController;
 use App\Http\Controllers\DatabaseController;
 use App\Http\Controllers\DestinationController;
+use App\Http\Controllers\RestoreController;
 use App\Http\Controllers\SelectionRuleController;
 use App\Http\Controllers\SystemController;
 use App\Http\Controllers\UserController;
@@ -56,6 +57,11 @@ Route::middleware(['auth', 'two-factor.required', 'can:panel.view'])->group(func
 
     Route::get('runs', [BackupRunController::class, 'index'])->name('runs.index');
     Route::get('runs/{run}', [BackupRunController::class, 'show'])->name('runs.show');
+
+    Route::get('restores', [RestoreController::class, 'index'])->name('restores.index');
+    Route::get('restores/new', [RestoreController::class, 'create'])->name('restores.create');
+    Route::post('restores', [RestoreController::class, 'store'])->name('restores.store');
+    Route::get('restores/{restore}', [RestoreController::class, 'show'])->name('restores.show');
 
     Route::get('users', [UserController::class, 'index'])->name('users.index');
     Route::post('users', [UserController::class, 'store'])->name('users.store');

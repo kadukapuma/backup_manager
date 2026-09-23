@@ -17,6 +17,9 @@ class FakeDatabaseServerClient implements DatabaseServerClient
 
     public bool $fail = false;
 
+    /** @var array<string, int> table counts reported after a restore creates a database */
+    public array $tableCounts = [];
+
     /**
      * @param  array<string, int>  $tables  name => table count
      */
@@ -53,6 +56,6 @@ class FakeDatabaseServerClient implements DatabaseServerClient
 
     public function tableCount(ServerConnection $connection, string $database): int
     {
-        return $this->databases[$database]->tableCount ?? 0;
+        return $this->tableCounts[$database] ?? $this->databases[$database]->tableCount ?? 0;
     }
 }

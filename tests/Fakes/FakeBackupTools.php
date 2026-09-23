@@ -28,6 +28,15 @@ class FakeBackupTools
 
     public bool $remoteHashMismatch = false;
 
+    public bool $importFails = false;
+
+    public ?string $identitySeen = null;
+
+    public ?string $importedFrom = null;
+
+    /** @var list<string> order of dump / sql / import calls */
+    public array $sequence = [];
+
     public string $sqlTail = "INSERT INTO t VALUES (1);\n-- Dump completed on 2026-09-23 02:00:01\n";
 
     public static function install(): self
@@ -52,12 +61,23 @@ class FakeBackupTools
             ];
 
             if (str_contains($cmd, '${:BM_DUMP}')) {
+                $this->sequence[] = 'dump';
                 if ($this->dumpFails) {
                     return Process::result('', "mariadb-dump: Got error: 1045: \"Access denied for user 'backup'@'localhost'\"", 2);
                 }
                 file_put_contents($env['BM_OUT'], 'ZSTD-DATA-'.$env['BM_DB']);
 
                 return Process::result('');
+            }
+
+            if (str_contains($cmd, '${:BM_AGE}')) {
+                $this->sequence[] = 'import';
+                $this->identitySeen = is_file($env['BM_ID']) ? (string) file_get_contents($env['BM_ID']) : null;
+                $this->importedFrom = (string) file_get_contents($env['BM_IN']);
+
+                return $this->importFails
+                    ? Process::result('', 'age: error: no identity matched any of the recipients', 1)
+                    : Process::result('');
             }
 
             if (str_contains($cmd, 'tail -c')) {
@@ -73,6 +93,10 @@ class FakeBackupTools
 
         $bin = basename((string) $cmd[0]);
         $args = array_slice($cmd, 1);
+
+        if (in_array('-e', $args, true)) {
+            $this->sequence[] = 'sql';
+        }
 
         if (in_array('--version', $args, true) || ($bin === 'rclone' && ($args[0] ?? '') === 'version')) {
             return Process::result("{$bin} v1.0");

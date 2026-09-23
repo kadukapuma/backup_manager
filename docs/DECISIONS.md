@@ -122,3 +122,22 @@ on destinations that no active plan covers are never pruned automatically. Reten
 takes the database lock, so it never deletes a copy that a running restore may be
 reading. It runs after every successful run and again daily at 04:30. Deleted copies stay
 in the catalog with `status=deleted`.
+
+## D22. Restore safety rules
+- **Replace** restores only over the database the backup came from, on the same connection.
+  **New copy** needs a name that does not exist yet, so nothing is overwritten by accident.
+- When the target exists, a `pre_restore` backup runs inline in the restore job. The job
+  already holds the lock, so it cannot wait for a separate job. It is stored on the
+  destinations of the plans that cover the database, or on every active destination.
+  If it cannot be stored anywhere, the restore aborts before anything is dropped.
+- MariaDB has no atomic `RENAME DATABASE`, so replace means drop + recreate + import.
+  The safety backup is the way back.
+- The restore takes the lock on the target and on the source database, so backups and
+  retention cannot touch either one while it runs.
+- Copies are tried in this order: the chosen copy, then local copies, then the rest. Each
+  download is checked against the catalog SHA-256 before decryption.
+- The post-check compares the number of base tables with the manifest.
+- A pasted age identity is reduced to its `AGE-SECRET-KEY-1…` line and stored with the
+  `encrypted` cast only until the job starts. The job moves it to a 0600 temp file and
+  deletes that file in `finally`. The hourly reaper wipes keys of restores that never
+  started.
