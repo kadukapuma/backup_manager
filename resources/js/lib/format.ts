@@ -54,3 +54,8 @@ export function timeAgo(iso: string | null | undefined): string {
     }
     return future ? 'in a moment' : 'just now';
 }
+
+export function formatSeconds(seconds: number | null | undefined): string {
+    if (seconds === null || seconds === undefined) return '—';
+    return formatDuration(seconds * 1000);
+}

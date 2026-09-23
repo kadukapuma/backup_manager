@@ -65,3 +65,63 @@ export interface RuleGroup {
     unmatched: number;
     rules: RuleRow[];
 }
+
+export interface RunSummary {
+    databases?: number;
+    succeeded?: number;
+    failed?: number;
+    copies?: number;
+    copies_failed?: number;
+    bytes?: number;
+    duration_seconds?: number | null;
+    failed_databases?: string[];
+    destinations?: string[];
+    message?: string;
+    error?: string;
+}
+
+export interface RunRow {
+    id: number;
+    plan: string | null;
+    connection: string | null;
+    trigger: RunTriggerValue;
+    status: RunStatusValue;
+    triggered_by: string | null;
+    created_at: string;
+    started_at: string | null;
+    finished_at: string | null;
+    files_count: number;
+    summary: RunSummary;
+}
+
+export interface CopyRow {
+    id: number;
+    destination: string;
+    destination_type: DestinationTypeValue;
+    remote_path: string;
+    status: CopyStatusValue;
+    verified_at: string | null;
+    error: string | null;
+}
+
+export interface VerificationRow {
+    level: 'checksum' | 'remote' | 'test_restore';
+    status: 'passed' | 'failed';
+    details: Record<string, unknown> | null;
+    created_at: string | null;
+}
+
+export interface RunFileRow {
+    id: number;
+    database: string;
+    database_id: number;
+    status: BackupFileStatusValue;
+    filename: string | null;
+    size_bytes: number | null;
+    sha256: string | null;
+    duration_ms: number | null;
+    error: string | null;
+    log: string | null;
+    copies: CopyRow[];
+    verifications: VerificationRow[];
+}

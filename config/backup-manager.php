@@ -88,4 +88,6 @@ return [
     ],
 
     'system_databases' => ['information_schema', 'performance_schema', 'mysql', 'sys'],
+
+    'app_version' => env('APP_VERSION', 'unknown'),
 ];

@@ -76,3 +76,35 @@ Passwords go through `rclone obscure -` on stdin, never as an argument. Remote l
 "Test" writes a random 32-byte file, checks its size, reads it back, deletes it and
 records free space (`rclone about`, where the backend supports it). It runs as a queued
 job, and the page polls every 3 seconds while a test is running.
+
+## D16. Level-1 verification happens before encryption
+The server only has the age public key, so it cannot decrypt a finished backup. The
+dump is therefore written compressed to a temporary file in the private tmp directory
+(0700). It is checked with `zstd -t`, and `zstd -dc | tail -c 1024` must contain
+`-- Dump completed`. Only then is it encrypted with `age -r`. The unencrypted file is
+deleted in a `finally` block and never leaves the server.
+`tee >(tail …)` was rejected: the process substitution can finish after the main
+pipeline, so the check could race.
+
+## D17. Upload and verification run inside the backup job
+The per-database lock covers dump → upload → verify, so a restore can never overlap an
+upload. Level-2 verification compares the size, then SHA-256 if the backend reports it
+(local, most SFTP), otherwise MD5 (S3; rclone stores MD5 metadata for multipart
+uploads). If neither hash is available the copy stays `uploaded` (size only), unless
+`BM_VERIFY_BY_DOWNLOAD=true`, which downloads the copy and compares SHA-256.
+
+## D18. When is a backup "successful"
+A backup file is `success` when the dump passed level-1 checks and at least one
+destination stored it. If no destination accepted it, the encrypted file stays in
+staging for manual recovery and the file is marked `failed`. A run is `success` when
+every file and copy succeeded, `failed` when no file succeeded, and `partial` otherwise.
+
+## D19. Missed schedules
+A plan runs at most once per dispatcher tick, however many slots were missed while the
+server was down. `next_run_at` is moved forward before the run starts. Jobs killed without
+reporting are marked failed by `backup-manager:reap-stuck` (hourly).
+
+## D20. Downloads
+Admins can download a backup only from a local-disk destination (the encrypted `.age`
+file is streamed). Remote copies are fetched on the server with rclone (see README).
+Pulling remote copies through the browser is listed in ROADMAP.

@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BackupPlanController;
+use App\Http\Controllers\BackupRunController;
 use App\Http\Controllers\ConnectionController;
 use App\Http\Controllers\DatabaseController;
 use App\Http\Controllers\DestinationController;
@@ -46,6 +48,13 @@ Route::middleware(['auth', 'two-factor.required', 'can:panel.view'])->group(func
     Route::post('plans', [BackupPlanController::class, 'store'])->name('plans.store');
     Route::put('plans/{plan}', [BackupPlanController::class, 'update'])->name('plans.update');
     Route::delete('plans/{plan}', [BackupPlanController::class, 'destroy'])->name('plans.destroy');
+
+    Route::post('plans/{plan}/run', [BackupController::class, 'runPlan'])->name('plans.run');
+    Route::post('backups/manual', [BackupController::class, 'manual'])->name('backups.manual');
+    Route::get('backups/{file}/download', [BackupController::class, 'download'])->name('backups.download');
+
+    Route::get('runs', [BackupRunController::class, 'index'])->name('runs.index');
+    Route::get('runs/{run}', [BackupRunController::class, 'show'])->name('runs.show');
 
     Route::get('users', [UserController::class, 'index'])->name('users.index');
     Route::post('users', [UserController::class, 'store'])->name('users.store');

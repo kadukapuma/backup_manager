@@ -12,3 +12,4 @@ Designed for, not built yet:
 - MariaDB binlog point-in-time recovery.
 - Multi-tenant SaaS mode.
 - Public REST API with tokens.
+- Download remote (SFTP/S3) copies through the browser via a queued "prepare download" job.
