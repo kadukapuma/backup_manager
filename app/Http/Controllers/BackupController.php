@@ -11,6 +11,7 @@ use App\Enums\DatabaseState;
 use App\Enums\DestinationType;
 use App\Enums\RunTrigger;
 use App\Exceptions\BackupException;
+use App\Jobs\DeleteBackupFileJob;
 use App\Models\BackupFile;
 use App\Models\BackupPlan;
 use App\Models\Database;
@@ -118,6 +119,19 @@ class BackupController extends Controller
         ]);
 
         return response()->download($copy->remote_path, $file->filename, ['Content-Type' => 'application/octet-stream']);
+    }
+
+    public function destroy(BackupFile $file): RedirectResponse
+    {
+        $this->authorize('delete', $file);
+
+        $this->audit->log(AuditAction::BackupDeleted, $file, [
+            'filename' => $file->filename,
+            'database' => $file->database->name,
+        ]);
+        DeleteBackupFileJob::dispatch($file->id);
+
+        return back()->with('success', 'Deletion of all copies has been queued.');
     }
 
     /**

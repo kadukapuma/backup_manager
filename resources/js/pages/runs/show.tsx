@@ -1,3 +1,4 @@
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -8,8 +9,8 @@ import AppLayout from '@/layouts/app-layout';
 import { formatBytes, formatDateTime, formatDuration, formatSeconds } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
 import { type RunFileRow, type RunRow } from '@/types/models';
-import { Head, Link } from '@inertiajs/react';
-import { ChevronDown, ChevronRight, Download, RotateCcw } from 'lucide-react';
+import { Head, Link, router } from '@inertiajs/react';
+import { ChevronDown, ChevronRight, Download, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 interface Props {
@@ -17,8 +18,17 @@ interface Props {
     files: RunFileRow[];
 }
 
-function FileCard({ file, canDownload, canRestore }: { file: RunFileRow; canDownload: boolean; canRestore: boolean }) {
+interface FileCardProps {
+    file: RunFileRow;
+    canDownload: boolean;
+    canRestore: boolean;
+    canDelete: boolean;
+}
+
+function FileCard({ file, canDownload, canRestore, canDelete }: FileCardProps) {
     const [open, setOpen] = useState(file.status === 'failed');
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const liveCopies = file.copies.filter((c) => c.status === 'verified' || c.status === 'uploaded').length;
     const hasLocal = file.copies.some((c) => c.destination_type === 'local' && (c.status === 'verified' || c.status === 'uploaded'));
 
     return (
@@ -45,6 +55,11 @@ function FileCard({ file, canDownload, canRestore }: { file: RunFileRow; canDown
                                 <Link href={route('restores.create', { database: file.database_id, file: file.id })}>
                                     <RotateCcw className="size-4" /> Restore…
                                 </Link>
+                            </Button>
+                        )}
+                        {canDelete && liveCopies > 0 && (
+                            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(true)} aria-label="Delete copies">
+                                <Trash2 className="size-4" />
                             </Button>
                         )}
                     </div>
@@ -98,6 +113,16 @@ function FileCard({ file, canDownload, canRestore }: { file: RunFileRow; canDown
                     </div>
                 )}
             </CardContent>
+            <ConfirmDialog
+                open={confirmDelete}
+                onOpenChange={setConfirmDelete}
+                title="Delete backup copies"
+                description={`Delete all ${liveCopies} stored copies of this ${file.database} backup? This cannot be undone. The history entry is kept.`}
+                confirmLabel="Delete copies"
+                destructive
+                typeToConfirm={file.database}
+                onConfirm={() => router.delete(route('backups.destroy', file.id), { preserveScroll: true, onFinish: () => setConfirmDelete(false) })}
+            />
         </Card>
     );
 }
@@ -168,7 +193,13 @@ export default function RunShow({ run, files }: Props) {
 
                 <div className="space-y-3">
                     {files.map((file) => (
-                        <FileCard key={file.id} file={file} canDownload={can('backups.download')} canRestore={can('backups.restore')} />
+                        <FileCard
+                            key={file.id}
+                            file={file}
+                            canDownload={can('backups.download')}
+                            canRestore={can('backups.restore')}
+                            canDelete={can('backups.delete')}
+                        />
                     ))}
                 </div>
             </div>

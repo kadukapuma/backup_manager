@@ -52,6 +52,7 @@ Route::middleware(['auth', 'two-factor.required', 'can:panel.view'])->group(func
     Route::post('plans/{plan}/run', [BackupController::class, 'runPlan'])->name('plans.run');
     Route::post('backups/manual', [BackupController::class, 'manual'])->name('backups.manual');
     Route::get('backups/{file}/download', [BackupController::class, 'download'])->name('backups.download');
+    Route::delete('backups/{file}', [BackupController::class, 'destroy'])->name('backups.destroy');
 
     Route::get('runs', [BackupRunController::class, 'index'])->name('runs.index');
     Route::get('runs/{run}', [BackupRunController::class, 'show'])->name('runs.show');

@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\ApplyRetentionJob;
 use App\Jobs\DiscoverDatabasesJob;
 use App\Models\ServerConnection;
 use Illuminate\Support\Facades\Schedule;
@@ -17,3 +18,5 @@ Schedule::call(function (): void {
 Schedule::command('backup-manager:dispatch-due')->name('dispatch-due-backups')->everyMinute()->withoutOverlapping();
 
 Schedule::command('backup-manager:reap-stuck')->name('reap-stuck-backups')->hourly()->withoutOverlapping();
+
+Schedule::job(new ApplyRetentionJob)->name('apply-retention')->dailyAt('04:30')->withoutOverlapping();

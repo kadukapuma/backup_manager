@@ -10,6 +10,7 @@ use App\Enums\CopyStatus;
 use App\Enums\NotificationEvent;
 use App\Enums\RunStatus;
 use App\Enums\RunTrigger;
+use App\Jobs\ApplyRetentionJob;
 use App\Models\BackupCopy;
 use App\Models\BackupFile;
 use App\Models\BackupRun;
@@ -90,6 +91,10 @@ class RunFinalizer
 
         if ($run->trigger !== RunTrigger::PreRestore) {
             $this->notify($run, $status, $failedFiles, $failedCopies);
+        }
+
+        if ($ok !== []) {
+            ApplyRetentionJob::dispatch(array_values(array_map(fn (BackupFile $f): int => $f->database_id, $ok)));
         }
     }
 

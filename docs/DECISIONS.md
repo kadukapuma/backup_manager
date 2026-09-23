@@ -108,3 +108,17 @@ reporting are marked failed by `backup-manager:reap-stuck` (hourly).
 Admins can download a backup only from a local-disk destination (the encrypted `.age`
 file is streamed). Remote copies are fetched on the server with rclone (see README).
 Pulling remote copies through the browser is listed in ROADMAP.
+
+## D21. Retention semantics
+GFS windows are counted back from "now" in the app timezone:
+- the newest backup of each of the last N days
+- the newest backup of each of the last N ISO weeks
+- the newest backup of each of the last N months
+
+The newest successful backup is always kept. Retention runs per database and per
+destination. The policy for a pair comes from the active plans that cover the database
+and use that destination; when plans overlap, the largest count of each kind wins. Copies
+on destinations that no active plan covers are never pruned automatically. Retention
+takes the database lock, so it never deletes a copy that a running restore may be
+reading. It runs after every successful run and again daily at 04:30. Deleted copies stay
+in the catalog with `status=deleted`.
