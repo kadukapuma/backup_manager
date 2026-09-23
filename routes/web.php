@@ -78,6 +78,7 @@ Route::middleware(['auth', 'two-factor.required', 'can:panel.view'])->group(func
 
     Route::get('system', [SystemController::class, 'show'])->name('system.show');
     Route::put('system', [SystemController::class, 'update'])->name('system.update');
+    Route::post('system/rebuild-catalog', [SystemController::class, 'rebuildCatalog'])->name('system.rebuild-catalog');
 });
 
 require __DIR__.'/settings.php';

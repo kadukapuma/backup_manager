@@ -1,3 +1,4 @@
+import { CatalogRebuildCard } from '@/components/catalog-rebuild-card';
 import { FormField } from '@/components/form-field';
 import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/status-badge';
@@ -8,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem } from '@/types';
+import { type BreadcrumbItem, type Option } from '@/types';
 import { Deferred, Head, router, useForm } from '@inertiajs/react';
 import { RefreshCw } from 'lucide-react';
 import { FormEventHandler } from 'react';
@@ -34,6 +35,7 @@ interface Props {
         cache_store: string;
         timezone: string;
     };
+    destinations: Option[];
 }
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'System settings', href: '/system' }];
@@ -74,7 +76,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     );
 }
 
-export default function SystemIndex({ canManage, settings, tools, security }: Props) {
+export default function SystemIndex({ canManage, settings, tools, security, destinations }: Props) {
     const form = useForm<{ age_public_key: string; stale_after_hours: number }>({
         age_public_key: settings.age_public_key,
         stale_after_hours: settings.stale_after_hours,
@@ -203,6 +205,8 @@ export default function SystemIndex({ canManage, settings, tools, security }: Pr
                         </CardContent>
                     </Card>
                 )}
+
+                {canManage && <CatalogRebuildCard destinations={destinations} />}
             </div>
         </AppLayout>
     );

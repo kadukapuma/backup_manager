@@ -7,6 +7,8 @@ namespace App\Http\Controllers;
 use App\Enums\AuditAction;
 use App\Enums\Permission;
 use App\Http\Requests\UpdateSystemSettingsRequest;
+use App\Jobs\RebuildCatalogJob;
+use App\Models\Destination;
 use App\Services\Audit\AuditLogger;
 use App\Services\Settings\SettingsStore;
 use App\Services\Tools\ToolRegistry;
@@ -44,7 +46,24 @@ class SystemController extends Controller
                 'cache_store' => config('cache.default'),
                 'timezone' => config('app.timezone'),
             ],
+            'destinations' => $canManage ? Destination::query()->orderBy('name')->get(['id', 'name', 'type'])
+                ->map(fn (Destination $d): array => ['value' => (string) $d->id, 'label' => $d->name.' ('.$d->type->label().')']) : [],
         ]);
+    }
+
+    /**
+     * Scan a destination's manifests and (re)create catalog records.
+     */
+    public function rebuildCatalog(Request $request): RedirectResponse
+    {
+        $data = $request->validate(['destination_id' => ['required', 'integer']]);
+        $destination = Destination::query()->findOrFail($data['destination_id']);
+        $this->authorize('rebuildCatalog', $destination);
+
+        RebuildCatalogJob::dispatch($destination->id, $request->user()?->id);
+        $this->audit->log(AuditAction::CatalogRebuildRequested, $destination, ['destination' => $destination->name]);
+
+        return back()->with('success', "Catalog rebuild from {$destination->name} queued. The result appears on the Runs page.");
     }
 
     public function update(UpdateSystemSettingsRequest $request): RedirectResponse

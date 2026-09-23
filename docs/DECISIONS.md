@@ -141,3 +141,18 @@ in the catalog with `status=deleted`.
   `encrypted` cast only until the job starts. The job moves it to a 0600 temp file and
   deletes that file in `finally`. The hourly reaper wipes keys of restores that never
   started.
+
+## D23. Catalog rebuild
+"Rebuild catalog" lists a destination recursively and reads every `*.manifest.json`. It
+imports a file only when:
+- the manifest is valid,
+- the database name passes validation,
+- the data file sits next to the manifest, and
+- the file's size matches the manifest.
+
+Files are matched by database + SHA-256, so running it again creates nothing new.
+Connections are matched by name. Unknown connection names go to an inactive placeholder
+connection called "Imported (unassigned)", so their backups can still be restored into
+any active connection with "new copy". Imported copies are `uploaded` (not `verified`)
+until they are checked again. Each rebuild is recorded as a run whose summary holds the
+counts and the skip reasons.
