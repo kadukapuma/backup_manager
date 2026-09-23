@@ -7,6 +7,7 @@ use App\Http\Controllers\BackupRunController;
 use App\Http\Controllers\ConnectionController;
 use App\Http\Controllers\DatabaseController;
 use App\Http\Controllers\DestinationController;
+use App\Http\Controllers\NotificationChannelController;
 use App\Http\Controllers\RestoreController;
 use App\Http\Controllers\SelectionRuleController;
 use App\Http\Controllers\SystemController;
@@ -62,6 +63,12 @@ Route::middleware(['auth', 'two-factor.required', 'can:panel.view'])->group(func
     Route::get('restores/new', [RestoreController::class, 'create'])->name('restores.create');
     Route::post('restores', [RestoreController::class, 'store'])->name('restores.store');
     Route::get('restores/{restore}', [RestoreController::class, 'show'])->name('restores.show');
+
+    Route::get('notifications', [NotificationChannelController::class, 'index'])->name('notifications.index');
+    Route::post('notifications', [NotificationChannelController::class, 'store'])->name('notifications.store');
+    Route::put('notifications/{channel}', [NotificationChannelController::class, 'update'])->name('notifications.update');
+    Route::delete('notifications/{channel}', [NotificationChannelController::class, 'destroy'])->name('notifications.destroy');
+    Route::post('notifications/{channel}/test', [NotificationChannelController::class, 'test'])->name('notifications.test');
 
     Route::get('users', [UserController::class, 'index'])->name('users.index');
     Route::post('users', [UserController::class, 'store'])->name('users.store');

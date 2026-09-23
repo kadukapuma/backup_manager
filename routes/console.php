@@ -19,4 +19,6 @@ Schedule::command('backup-manager:dispatch-due')->name('dispatch-due-backups')->
 
 Schedule::command('backup-manager:reap-stuck')->name('reap-stuck-backups')->hourly()->withoutOverlapping();
 
+Schedule::command('backup-manager:check-stale')->name('check-stale-backups')->hourlyAt(20)->withoutOverlapping();
+
 Schedule::job(new ApplyRetentionJob)->name('apply-retention')->dailyAt('04:30')->withoutOverlapping();
