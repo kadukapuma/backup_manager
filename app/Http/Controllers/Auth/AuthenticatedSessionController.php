@@ -29,7 +29,18 @@ class AuthenticatedSessionController extends Controller
      */
     public function store(LoginRequest $request): RedirectResponse
     {
-        $request->authenticate();
+        $user = $request->validateCredentials();
+
+        if ($user->hasTwoFactorEnabled()) {
+            $request->session()->put([
+                'login.id' => $user->getKey(),
+                'login.remember' => $request->boolean('remember'),
+            ]);
+
+            return redirect()->route('two-factor.login');
+        }
+
+        Auth::guard('web')->login($user, $request->boolean('remember'));
 
         $request->session()->regenerate();
 
