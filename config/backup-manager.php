@@ -70,7 +70,7 @@ return [
     /*
     | How many times a backup job waits for a busy database lock before failing.
     */
-    'lock_wait_attempts' => (int) env('BM_LOCK_WAIT_ATTEMPTS', 10),
+    'lock_wait_attempts' => (int) env('BM_LOCK_WAIT_ATTEMPTS', 30),
     'lock_wait_seconds' => (int) env('BM_LOCK_WAIT_SECONDS', 60),
 
     /*

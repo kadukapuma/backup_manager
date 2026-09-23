@@ -1,6 +1,6 @@
 # Database Backup Manager — Implementation Plan (Phase 1)
 
-Status: **draft, awaiting approval**. No code is written until this is approved.
+Status: **approved and implemented (Phase 1)**. The build choices are recorded in [DECISIONS.md](DECISIONS.md), later work in [ROADMAP.md](ROADMAP.md).
 
 ---
 

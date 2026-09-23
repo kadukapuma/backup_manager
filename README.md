@@ -1,0 +1,307 @@
+# Database Backup Manager
+
+A web panel to discover MariaDB/MySQL databases, pick which ones to back up, run encrypted
+backups on schedules to several storage locations, verify them, and restore them safely.
+
+Built with Laravel 12, Inertia and React (TypeScript, shadcn/ui).
+
+- **Discovery** runs every 15 minutes. New databases (for example a new fixflow tenant)
+  follow glob rules like `kreethya_*` / `*_test`, or wait for approval, and trigger an alert.
+- **Backups** run `mariadb-dump | zstd`. Before encryption each dump is checked with a zstd
+  integrity test and for the `-- Dump completed` trailer. It is then encrypted with
+  **age**, hashed with SHA-256, and gets a JSON manifest.
+- **Destinations** are local disk, SFTP and S3-compatible storage, via rclone. Every copy is
+  checked remotely (size + SHA-256/MD5).
+- **Retention** is grandfather-father-son per destination. The newest good backup is never deleted.
+- **Restore wizard**: pick a backup point, pick the copy to read from, then replace the
+  original or restore into a new database. A safety backup is taken first, the SHA-256 is
+  checked, and the table count is compared afterwards. Progress shows live.
+- **Roles** (admin / operator / viewer), 2FA, audit log, optional IP allowlist, and email alerts.
+
+Design notes: [docs/PLAN.md](docs/PLAN.md), [docs/DECISIONS.md](docs/DECISIONS.md),
+[docs/ROADMAP.md](docs/ROADMAP.md).
+
+---
+
+## 1. Requirements
+
+| Component | Version / notes |
+|---|---|
+| PHP | 8.3 (8.2 works). Extensions: `pdo_mysql`, `mbstring`, `openssl`, `intl` (optional), `redis` (production) |
+| Composer | 2.x |
+| Node.js | 20+ (only to build the frontend; you can build elsewhere and upload `public/build`) |
+| App database | MariaDB/MySQL in production (SQLite works for development) |
+| Queue / cache | Redis in production (`database` driver in development) |
+| Shell | `bash`, and `/bin/sh` must support `set -o pipefail` (true on AlmaLinux) |
+| Backup tools | `mariadb-dump`, `mariadb`, `zstd`, `age` (+ `age-keygen`), `rclone` ≥ 1.60, `sha256sum` |
+| Process control | Supervisor (queue workers) and cron (scheduler) |
+
+System settings → **Tool check** shows the path and version of each binary and whether the pipefail check passes.
+
+---
+
+## 2. Local development
+
+```bash
+composer install
+npm install
+cp .env.example .env
+php artisan key:generate
+touch database/database.sqlite
+# set ADMIN_EMAIL / ADMIN_PASSWORD (12+ chars) in .env
+php artisan migrate --seed
+composer run dev      # web server, queue listener, logs, vite
+```
+
+Run the checks:
+
+```bash
+./vendor/bin/pest                 # unit + feature tests (all shell tools are faked)
+./vendor/bin/pint --test          # PSR-12 / Laravel style
+npx tsc --noEmit && npx eslint resources/js
+```
+
+### Optional integration test (real dump → encrypt → restore)
+
+This needs a MariaDB server plus the real tools (Linux/WSL). It creates and drops databases named `bm_it_*`.
+
+```bash
+RUN_INTEGRATION=true IT_DB_HOST=127.0.0.1 IT_DB_PORT=3306 \
+IT_DB_USER=root IT_DB_PASSWORD=secret ./vendor/bin/pest --testsuite=Integration
+```
+
+---
+
+## 3. `.env` keys
+
+The standard Laravel keys (`APP_*`, `DB_*`, `MAIL_*`, `REDIS_*`) work as usual. These keys are specific to this app:
+
+| Key | Default | Purpose |
+|---|---|---|
+| `APP_TIMEZONE` | `Asia/Colombo` | Schedules, filenames, retention day boundaries |
+| `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | – | The first admin, created by `db:seed` (password ≥ 12 chars) |
+| `MARIADB_BIN_DIR` | empty (use `$PATH`) | Directory containing `mariadb-dump` and `mariadb`, e.g. `/usr/local/apps/mariadb114/bin` |
+| `BM_MARIADB_DUMP_BIN`, `BM_MARIADB_BIN` | from `MARIADB_BIN_DIR` | Full-path overrides (use `mysqldump`/`mysql` for MySQL servers) |
+| `BM_ZSTD_BIN`, `BM_AGE_BIN`, `BM_RCLONE_BIN`, `BM_SHA256SUM_BIN`, `BM_BASH_BIN` | names on `$PATH` | Tool paths |
+| `BM_STAGING_PATH`, `BM_TMP_PATH` | `storage/app/private/backup-manager/{staging,tmp}` | Private work directories (0700). They need free space of roughly 2× the largest compressed dump |
+| `AGE_IDENTITY_FILE` | empty | Optional age private key file for restores. When empty, you paste the key in the wizard |
+| `BM_ZSTD_LEVEL` | `3` | zstd level (1–19) |
+| `BM_STALE_AFTER_HOURS` | `26` | Default "no recent backup" threshold. Can also be changed in the UI |
+| `BM_VERIFY_BY_DOWNLOAD` | `false` | Re-download a copy to check its SHA-256 when the backend reports no hash |
+| `BM_IP_ALLOWLIST` | empty (off) | Comma-separated IPs/CIDRs allowed to open the panel, e.g. `203.0.113.10,10.0.0.0/8` |
+| `BM_REQUIRE_2FA` | `false` | Force every user to enable 2FA before using the panel |
+| `BM_TRUSTED_PROXIES` | empty | Proxy IPs (or `*`) when behind a reverse proxy/Cloudflare, so the IP allowlist and audit log see real client IPs |
+| `BM_QUEUE_BACKUPS`, `BM_QUEUE_RESTORES`, `BM_QUEUE_DEFAULT` | `backups`, `restores`, `default` | Queue names |
+| `BM_BACKUP_TIMEOUT`, `BM_RESTORE_TIMEOUT` | `21600` | Seconds per database backup / restore |
+| `BM_LOCK_SECONDS` | `28800` | Lifetime of the per-database lock |
+| `BM_LOCK_WAIT_ATTEMPTS`, `BM_LOCK_WAIT_SECONDS` | `30`, `60` | How long a backup waits for a busy database |
+| `APP_VERSION` | git commit | Written into manifests when `.git` is not deployed |
+
+Production values:
+
+```dotenv
+APP_ENV=production
+APP_DEBUG=false
+QUEUE_CONNECTION=redis
+CACHE_STORE=redis          # locks need a shared cache; redis or database
+SESSION_DRIVER=redis
+SESSION_SECURE_COOKIE=true
+```
+
+---
+
+## 4. Encryption keys (age)
+
+Backups are encrypted with an age **public key** before they leave the server. The
+**private key** is never stored in the database. It is needed only to restore.
+
+```bash
+# On your own machine (not the server):
+age-keygen -o kreethya-backup.key
+# Public key: age1q....   <- paste this into System settings → age public key
+```
+
+- Store `kreethya-backup.key` in the company password manager **and** on offline media (at least two copies).
+  **Without it, no backup can ever be restored.**
+- When restoring, paste the `AGE-SECRET-KEY-1…` line into the wizard. It is kept encrypted only until the job
+  starts, then wiped. Alternatively, set `AGE_IDENTITY_FILE` to a 0600 file readable by the worker user.
+  This is convenient, but it means someone who takes over the server can also decrypt backups.
+- Rotating the key: generate a new pair and save the new public key. Old backups still need the old private key.
+
+---
+
+## 5. MariaDB user for the panel
+
+Discovery and backups only need read access. Restores need to create and drop databases.
+Create one dedicated user:
+
+```sql
+CREATE USER 'bm_backup'@'localhost' IDENTIFIED BY 'a-long-random-password';
+
+-- backup (read) privileges
+GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES, PROCESS, SHOW DATABASES
+  ON *.* TO 'bm_backup'@'localhost';
+-- MariaDB 11.x: allow dumping stored routines
+GRANT SHOW CREATE ROUTINE ON *.* TO 'bm_backup'@'localhost';
+
+-- restore privileges (skip if you will never restore through the panel)
+GRANT CREATE, DROP, ALTER, INDEX, INSERT, UPDATE, DELETE, REFERENCES,
+      CREATE VIEW, CREATE ROUTINE, ALTER ROUTINE, EXECUTE, CREATE TEMPORARY TABLES,
+      SET USER
+  ON *.* TO 'bm_backup'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+`SET USER` (MariaDB ≥ 10.5.2) lets restores recreate views, triggers and routines whose
+`DEFINER` is another user. For MySQL 8, use `SET_USER_ID` / `SYSTEM_USER` instead.
+
+Add the connection under **Connections**. You can use `127.0.0.1:3306` or the socket path (Webuzo usually uses
+`/var/lib/mysql/mysql.sock`), then press **Test**.
+
+---
+
+## 6. Installing the tools on AlmaLinux 9
+
+```bash
+sudo dnf install -y epel-release
+sudo dnf install -y zstd age rclone supervisor redis bash coreutils
+sudo systemctl enable --now redis supervisord
+```
+
+If the EPEL `rclone` is older than 1.60, install the official build:
+`curl https://rclone.org/install.sh | sudo bash`.
+
+On Webuzo, MariaDB 11.4 client tools are in `/usr/local/apps/mariadb114/bin`, so set
+`MARIADB_BIN_DIR` to that directory. Check them with `/usr/local/apps/mariadb114/bin/mariadb-dump --version`.
+
+---
+
+## 7. Deployment on Webuzo / AlmaLinux
+
+The example assumes the app runs as the Webuzo user `kreethya` at `/home/kreethya/apps/backup-manager`,
+served on `backup.kreethya.com`.
+
+1. **PHP 8.3**: in Webuzo, install PHP 8.3 and enable `pdo_mysql`, `mbstring`, `openssl`, `redis`, `intl`.
+   The CLI is usually `/usr/local/apps/php83/bin/php`. Use it everywhere below as `php`.
+2. **Code**
+   ```bash
+   cd /home/kreethya/apps
+   git clone <repo-url> backup-manager && cd backup-manager
+   composer install --no-dev --optimize-autoloader
+   npm ci && npm run build          # or build locally and upload public/build
+   ```
+3. **App database**: in Webuzo, create a MariaDB database and user for the panel itself (for example `bm_app`).
+   This is not the backup user from section 5.
+4. **Environment**
+   ```bash
+   cp .env.example .env
+   php artisan key:generate
+   # edit .env: APP_URL, DB_*, REDIS_*, MAIL_*, ADMIN_*, MARIADB_BIN_DIR, BM_IP_ALLOWLIST ...
+   chmod 600 .env
+   php artisan migrate --force
+   php artisan db:seed --force      # roles, permissions and the admin user (safe to re-run)
+   php artisan storage:link
+   php artisan config:cache && php artisan route:cache && php artisan view:cache
+   ```
+   Back up `APP_KEY` somewhere safe as well. It encrypts the stored connection and destination passwords.
+5. **Permissions**: the web server user and the queue worker must run as the same user (`kreethya`).
+   ```bash
+   chmod -R u+rwX,go-rwx storage bootstrap/cache
+   ```
+6. **Web**: in Webuzo, add the domain `backup.kreethya.com` with document root
+   `/home/kreethya/apps/backup-manager/public`, and enable HTTPS (Let's Encrypt).
+7. **Queue workers (Supervisor)**: `/etc/supervisord.d/backup-manager.ini`
+   ```ini
+   [program:bm-backups]
+   command=/usr/local/apps/php83/bin/php /home/kreethya/apps/backup-manager/artisan queue:work redis --queue=backups,restores --sleep=3 --tries=1 --timeout=22000 --memory=512
+   user=kreethya
+   numprocs=2
+   process_name=%(program_name)s_%(process_num)02d
+   autostart=true
+   autorestart=true
+   stopwaitsecs=22100
+   stdout_logfile=/home/kreethya/apps/backup-manager/storage/logs/worker-backups.log
+   redirect_stderr=true
+
+   [program:bm-default]
+   command=/usr/local/apps/php83/bin/php /home/kreethya/apps/backup-manager/artisan queue:work redis --queue=default --sleep=3 --tries=1 --timeout=3700
+   user=kreethya
+   numprocs=1
+   process_name=%(program_name)s_%(process_num)02d
+   autostart=true
+   autorestart=true
+   stopwaitsecs=3800
+   stdout_logfile=/home/kreethya/apps/backup-manager/storage/logs/worker-default.log
+   redirect_stderr=true
+   ```
+   ```bash
+   sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl status
+   ```
+   `numprocs` on `bm-backups` is how many databases are dumped in parallel.
+   The worker `--timeout` must be larger than `BM_BACKUP_TIMEOUT`.
+   On Redis, also set `retry_after` in `config/queue.php` (`REDIS_QUEUE_RETRY_AFTER`) above the timeout.
+8. **Scheduler (cron)**: `crontab -e` as `kreethya`:
+   ```cron
+   * * * * * cd /home/kreethya/apps/backup-manager && /usr/local/apps/php83/bin/php artisan schedule:run >> /dev/null 2>&1
+   ```
+   It runs these jobs:
+   - discovery every 15 minutes
+   - due plans every minute
+   - stale-backup alerts hourly
+   - stuck-job reaper hourly
+   - retention sweep daily at 04:30
+9. **First login**:
+   - Sign in as the admin and enable 2FA (Settings → Two-factor auth).
+   - Paste the age public key in System settings and check the Tool check.
+   - Add a connection, destinations (at least one off-server), a notification channel, then a backup plan.
+   - Press **Run now** once and open the run to confirm every copy is *verified*.
+
+### Updating
+
+```bash
+cd /home/kreethya/apps/backup-manager
+php artisan down
+git pull
+composer install --no-dev --optimize-autoloader
+npm ci && npm run build
+php artisan migrate --force && php artisan db:seed --force
+php artisan config:cache && php artisan route:cache && php artisan view:cache
+php artisan queue:restart
+php artisan up
+```
+
+---
+
+## 8. Disaster recovery without the panel
+
+Every backup is a normal file, so you can restore by hand:
+
+```bash
+# fetch a copy (or copy it from the local backup directory)
+rclone copy remote:backups/vps_main/shop/shop__20260923-020000__scheduled.sql.zst.age .
+sha256sum shop__*.age          # compare with the sha256 in the .manifest.json next to it
+
+mariadb -e "CREATE DATABASE shop_recovered CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+age -d -i kreethya-backup.key shop__20260923-020000__scheduled.sql.zst.age \
+  | zstd -dc | mariadb shop_recovered
+```
+
+On a new server, install the panel, add the old destinations, then use **System settings → Rebuild catalog**.
+All old backups then appear in the restore wizard.
+
+Remote layout: `<base path>/<connection-slug>/<database>/<db>__<YYYYmmdd-HHMMSS>__<trigger>.sql.zst.age` (+ `.manifest.json`).
+
+---
+
+## 9. Roles
+
+| | admin | operator | viewer |
+|---|:-:|:-:|:-:|
+| View dashboard, databases, runs, plans, destinations | ✓ | ✓ | ✓ |
+| Include / exclude / approve databases, refresh discovery | ✓ | ✓ | – |
+| Back up now, run a plan now | ✓ | ✓ | – |
+| Restore | ✓ | ✓ | – |
+| Download backup files (local copies) | ✓ | – | – |
+| Delete backups, rebuild catalog, system settings | ✓ | – | – |
+| Manage connections, destinations, plans, rules, notifications | ✓ | – | – |
+| Users & roles, audit log | ✓ | – | – |

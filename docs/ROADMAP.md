@@ -13,3 +13,7 @@ Designed for, not built yet:
 - Multi-tenant SaaS mode.
 - Public REST API with tokens.
 - Download remote (SFTP/S3) copies through the browser via a queued "prepare download" job.
+- Periodic re-verification of stored copies (remote hash check for `uploaded` copies, and for copies imported by a catalog rebuild).
+- Retry or flush failed queue jobs from the dashboard (today: `php artisan queue:failed` / `queue:retry`).
+- Optional separate restore credentials per connection, so the everyday backup user can stay read-only.
+- Per-plan choice of compression level and parallelism.

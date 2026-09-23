@@ -9,7 +9,7 @@ use Tests\TestCase;
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->beforeEach(fn () => $this->seed(RolesAndPermissionsSeeder::class))
-    ->in('Feature');
+    ->in('Feature', 'Integration');
 
 pest()->extend(TestCase::class)->in('Unit');
 
