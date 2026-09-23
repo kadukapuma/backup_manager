@@ -85,4 +85,4 @@ export interface Paginated<T> {
     links: PaginationLink[];
 }
 
-export type TestStatus = 'ok' | 'failed';
+export type TestStatus = 'ok' | 'running' | 'failed';

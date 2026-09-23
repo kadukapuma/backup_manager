@@ -9,5 +9,6 @@ enum TestStatus: string
     use HasOptions;
 
     case Ok = 'ok';
+    case Running = 'running';
     case Failed = 'failed';
 }

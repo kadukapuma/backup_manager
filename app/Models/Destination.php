@@ -77,12 +77,18 @@ class Destination extends Model
     }
 
     /**
-     * Full remote path for a file name, relative to the rclone remote root.
+     * Destination-relative path (stored in backup_copies.remote_path) for a
+     * path below base_path. An absolute base_path stays absolute.
      */
     public function pathFor(string $relative): string
     {
-        $base = trim($this->base_path, '/');
+        $base = rtrim($this->base_path, '/');
+        $relative = ltrim($relative, '/');
 
-        return ($this->type === DestinationType::Local ? '/' : '').ltrim(($base !== '' ? $base.'/' : '').ltrim($relative, '/'), '/');
+        if ($base === '') {
+            return $this->type === DestinationType::Local ? '/'.$relative : $relative;
+        }
+
+        return $base.'/'.$relative;
     }
 }

@@ -65,3 +65,14 @@ New databases get the state of the first matching rule, otherwise the connection
 policy. Rules never override a state set by hand. "Apply to existing" re-evaluates only
 databases whose state came from a rule or the policy. "Use rules" on the Databases page
 turns a manual choice back into an automatic one.
+
+## D14. rclone configuration
+Each rclone process gets `RCLONE_CONFIG=/notfound` (in-memory config only) plus
+`RCLONE_CONFIG_BMDEST_*` variables built from the encrypted destination config.
+Passwords go through `rclone obscure -` on stdin, never as an argument. Remote layout:
+`<base_path>/<connection>/<database>/<file>`. For S3, the bucket is the first path segment.
+
+## D15. Destination test is queued
+"Test" writes a random 32-byte file, checks its size, reads it back, deletes it and
+records free space (`rclone about`, where the backend supports it). It runs as a queued
+job, and the page polls every 3 seconds while a test is running.

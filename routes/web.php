@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ConnectionController;
 use App\Http\Controllers\DatabaseController;
+use App\Http\Controllers\DestinationController;
 use App\Http\Controllers\SelectionRuleController;
 use App\Http\Controllers\SystemController;
 use App\Http\Controllers\UserController;
@@ -32,6 +33,12 @@ Route::middleware(['auth', 'two-factor.required', 'can:panel.view'])->group(func
     Route::put('rules/{rule}', [SelectionRuleController::class, 'update'])->name('rules.update');
     Route::delete('rules/{rule}', [SelectionRuleController::class, 'destroy'])->name('rules.destroy');
     Route::post('connections/{connection}/apply-rules', [SelectionRuleController::class, 'apply'])->name('rules.apply');
+
+    Route::get('destinations', [DestinationController::class, 'index'])->name('destinations.index');
+    Route::post('destinations', [DestinationController::class, 'store'])->name('destinations.store');
+    Route::put('destinations/{destination}', [DestinationController::class, 'update'])->name('destinations.update');
+    Route::delete('destinations/{destination}', [DestinationController::class, 'destroy'])->name('destinations.destroy');
+    Route::post('destinations/{destination}/test', [DestinationController::class, 'test'])->name('destinations.test');
 
     Route::get('users', [UserController::class, 'index'])->name('users.index');
     Route::post('users', [UserController::class, 'store'])->name('users.store');
