@@ -27,3 +27,21 @@ with confirmed 2FA is sent to Fortify's `two-factor-challenge`.
 
 ## D6. Downloads are admin-only
 Operators can run backups and restores but cannot download backup files.
+
+## D7. Model names
+The table `connections` is backed by the model `ServerConnection`, and its relation is
+`serverConnection()`. This avoids a clash with Eloquent's built-in `$connection` property.
+
+## D8. Shell execution through Laravel's Process facade
+All external commands go through `Illuminate\Support\Facades\Process`, which wraps
+Symfony Process and supports `Process::fake()` in tests:
+- Commands without a pipe are passed as arrays (no shell).
+- Pipelines are strings run by Symfony's `fromShellCommandline()`. They use named
+  placeholders (`"${:DB}"`) whose values come from the process environment, so user
+  input is never concatenated into the command string.
+- Pipelines start with `set -o pipefail`, so `/bin/sh` must support it. On AlmaLinux
+  `/bin/sh` is bash. The System settings tool check verifies this.
+
+## D9. age public key validation
+A key must match `^age1[bech32 charset]{58}$`. The key is stored in the `settings` table,
+not in `.env`, so admins can rotate it from the UI. The change is audit-logged.
