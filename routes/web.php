@@ -5,6 +5,7 @@ use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BackupPlanController;
 use App\Http\Controllers\BackupRunController;
 use App\Http\Controllers\ConnectionController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DatabaseController;
 use App\Http\Controllers\DestinationController;
 use App\Http\Controllers\NotificationChannelController;
@@ -13,14 +14,11 @@ use App\Http\Controllers\SelectionRuleController;
 use App\Http\Controllers\SystemController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
 Route::redirect('/', '/dashboard')->name('home');
 
 Route::middleware(['auth', 'two-factor.required', 'can:panel.view'])->group(function () {
-    Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
-    })->name('dashboard');
+    Route::get('dashboard', DashboardController::class)->name('dashboard');
 
     Route::get('connections', [ConnectionController::class, 'index'])->name('connections.index');
     Route::post('connections', [ConnectionController::class, 'store'])->name('connections.store');
