@@ -18,6 +18,7 @@ interface ToolCheck {
     tool: string;
     path: string;
     found: boolean;
+    optional: boolean;
     version: string | null;
     error: string | null;
 }
@@ -57,9 +58,17 @@ function ToolsTable({ tools }: { tools: ToolCheck[] }) {
                         <TableCell className="font-medium">{t.tool}</TableCell>
                         <TableCell className="font-mono text-xs">{t.path}</TableCell>
                         <TableCell>
-                            <StatusBadge status={t.found ? 'ok' : 'failed'} label={t.found ? 'found' : 'missing'} />
+                            {t.found ? (
+                                <StatusBadge status="ok" label="found" />
+                            ) : t.optional ? (
+                                <StatusBadge status="inactive" label="not installed" />
+                            ) : (
+                                <StatusBadge status="failed" label="missing" />
+                            )}
                         </TableCell>
-                        <TableCell className="max-w-md text-xs break-all">{t.version ?? t.error}</TableCell>
+                        <TableCell className="max-w-md text-xs break-all">
+                            {t.version ?? (t.optional ? 'Optional: only needed for PostgreSQL or SSH connections. ' : '') + (t.error ?? '')}
+                        </TableCell>
                     </TableRow>
                 ))}
             </TableBody>

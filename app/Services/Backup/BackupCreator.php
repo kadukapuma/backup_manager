@@ -50,8 +50,8 @@ class BackupCreator
             $this->pipeline->dumpCompressed($connection, $database->name, $compressed, $log);
             $log->add('Dump written ('.$this->size($compressed).' bytes compressed). Verifying…');
 
-            $checks = $this->pipeline->verifyCompressedDump($compressed);
-            $log->add('Level-1 check passed: zstd frame intact, "-- Dump completed" present.');
+            $checks = $this->pipeline->verifyCompressedDump($compressed, $connection->driver);
+            $log->add('Level-1 check passed: zstd frame intact, "'.$connection->driver->dumpCompletedMarker().'" present.');
 
             $this->pipeline->encrypt($compressed, $finalPath, $recipient);
             $log->add('Encrypted with age.');
@@ -66,6 +66,7 @@ class BackupCreator
         $manifest = ManifestBuilder::build(
             database: $database,
             connectionName: $connection->name,
+            engine: $connection->driver->value,
             filename: $filename,
             createdAt: $createdAt,
             trigger: $trigger,

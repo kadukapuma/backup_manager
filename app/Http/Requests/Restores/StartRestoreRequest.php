@@ -84,6 +84,14 @@ class StartRestoreRequest extends FormRequest
                     return;
                 }
 
+                $targetConnection = ServerConnection::query()->find($connectionId);
+                if ($targetConnection !== null && $targetConnection->driver->isPostgres() !== $file->engine()->isPostgres()) {
+                    $validator->errors()->add('target_connection_id', 'This is a '.$file->engine()->label().' backup. Restore it into a '
+                        .($file->engine()->isPostgres() ? 'PostgreSQL' : 'MariaDB/MySQL').' connection.');
+
+                    return;
+                }
+
                 if ($mode === RestoreMode::Replace && ($target !== $file->database->name || $connectionId !== $file->database->connection_id)) {
                     $validator->errors()->add('target_database', 'Replace mode restores over the original database only. Use "new copy" for another name or server.');
                 }

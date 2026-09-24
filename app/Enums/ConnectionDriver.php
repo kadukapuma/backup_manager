@@ -17,7 +17,7 @@ enum ConnectionDriver: string
         return match ($this) {
             self::Mariadb => 'MariaDB',
             self::Mysql => 'MySQL',
-            self::Pgsql => 'PostgreSQL (planned)',
+            self::Pgsql => 'PostgreSQL',
         };
     }
 
@@ -26,7 +26,25 @@ enum ConnectionDriver: string
      */
     public function isSupported(): bool
     {
-        return $this !== self::Pgsql;
+        return true;
+    }
+
+    public function isPostgres(): bool
+    {
+        return $this === self::Pgsql;
+    }
+
+    public function defaultPort(): int
+    {
+        return $this === self::Pgsql ? 5432 : 3306;
+    }
+
+    /**
+     * Text the dump tool writes at the very end of a complete dump.
+     */
+    public function dumpCompletedMarker(): string
+    {
+        return $this === self::Pgsql ? '-- PostgreSQL database dump complete' : '-- Dump completed';
     }
 
     /**

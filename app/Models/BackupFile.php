@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\BackupFileStatus;
+use App\Enums\ConnectionDriver;
 use Database\Factories\BackupFileFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -73,6 +74,17 @@ class BackupFile extends Model
     public function verifications(): HasMany
     {
         return $this->hasMany(VerificationRun::class);
+    }
+
+    /**
+     * The database engine that produced the dump. Manifests written before
+     * PostgreSQL support have no "engine" and are MariaDB/MySQL dumps.
+     */
+    public function engine(): ConnectionDriver
+    {
+        $engine = ConnectionDriver::tryFrom((string) ($this->manifest['engine'] ?? ''));
+
+        return $engine ?? $this->database->serverConnection->driver ?? ConnectionDriver::Mariadb;
     }
 
     public function manifestFilename(): string

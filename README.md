@@ -1,15 +1,19 @@
 # Database Backup Manager
 
-A web panel to discover MariaDB/MySQL databases, pick which ones to back up, run encrypted
-backups on schedules to several storage locations, verify them, and restore them safely.
+A web panel to discover MariaDB, MySQL and PostgreSQL databases, on this server or on other
+servers through SSH, pick which ones to back up, run encrypted backups on schedules to several
+storage locations, verify them, and restore them safely.
 
 Built with Laravel 12, Inertia and React (TypeScript, shadcn/ui).
 
 - **Discovery** runs every 15 minutes. New databases (for example a new fixflow tenant)
   follow glob rules like `kreethya_*` / `*_test`, or wait for approval, and trigger an alert.
-- **Backups** run `mariadb-dump | zstd`. Before encryption each dump is checked with a zstd
-  integrity test and for the `-- Dump completed` trailer. It is then encrypted with
-  **age**, hashed with SHA-256, and gets a JSON manifest.
+- **Backups** run `mariadb-dump | zstd` or `pg_dump | zstd`. Before encryption each dump is
+  checked with a zstd integrity test and for the dump tool's end marker (`-- Dump completed` /
+  `-- PostgreSQL database dump complete`). It is then encrypted with **age**, hashed with
+  SHA-256, and gets a JSON manifest.
+- **Other servers** are reached through a built-in SSH tunnel. The panel creates a key per
+  connection that can only forward to the database port; nothing is installed on the other server.
 - **Destinations** are local disk, SFTP and S3-compatible storage, via rclone. Every copy is
   checked remotely (size + SHA-256/MD5).
 - **Retention** is grandfather-father-son per destination. The newest good backup is never deleted.
@@ -34,6 +38,8 @@ Design notes: [docs/PLAN.md](docs/PLAN.md), [docs/DECISIONS.md](docs/DECISIONS.m
 | Queue / cache | Redis in production (`database` driver in development) |
 | Shell | `bash`, and `/bin/sh` must support `set -o pipefail` (true on AlmaLinux) |
 | Backup tools | `mariadb-dump`, `mariadb`, `zstd`, `age` (+ `age-keygen`), `rclone` ≥ 1.60, `sha256sum` |
+| PostgreSQL (optional) | `pg_dump` and `psql`, same major version as the newest server you back up, or newer |
+| SSH (optional) | `ssh`, `ssh-keygen`, `ssh-keyscan` (package `openssh-clients`) |
 | Process control | Supervisor (queue workers) and cron (scheduler) |
 
 System settings → **Tool check** shows the path and version of each binary and whether the pipefail check passes.
@@ -70,6 +76,17 @@ RUN_INTEGRATION=true IT_DB_HOST=127.0.0.1 IT_DB_PORT=3306 \
 IT_DB_USER=root IT_DB_PASSWORD=secret ./vendor/bin/pest --testsuite=Integration
 ```
 
+The PostgreSQL version creates and drops `bm_it_pg_*` databases. Add the `IT_SSH_*` values to
+run it through an SSH tunnel (see the comment at the top of `tests/Integration/PostgresDumpRestoreTest.php`):
+
+```bash
+RUN_PG_INTEGRATION=true IT_PG_HOST=127.0.0.1 IT_PG_PORT=5432 \
+IT_PG_USER=bm_backup IT_PG_PASSWORD=secret ./vendor/bin/pest --testsuite=Integration
+```
+
+Never run the tests inside a deployed copy whose config is cached (`php artisan config:cache`):
+the tests would then use and wipe the real panel database. Use a separate checkout.
+
 ---
 
 ## 3. `.env` keys
@@ -83,6 +100,10 @@ The standard Laravel keys (`APP_*`, `DB_*`, `MAIL_*`, `REDIS_*`) work as usual. 
 | `MARIADB_BIN_DIR` | empty (use `$PATH`) | Directory containing `mariadb-dump` and `mariadb`, e.g. `/usr/local/apps/mariadb114/bin` |
 | `BM_MARIADB_DUMP_BIN`, `BM_MARIADB_BIN` | from `MARIADB_BIN_DIR` | Full-path overrides (use `mysqldump`/`mysql` for MySQL servers) |
 | `BM_ZSTD_BIN`, `BM_AGE_BIN`, `BM_RCLONE_BIN`, `BM_SHA256SUM_BIN`, `BM_BASH_BIN` | names on `$PATH` | Tool paths |
+| `PG_BIN_DIR` | empty (use `$PATH`) | Directory containing `pg_dump` and `psql`, e.g. `/usr/pgsql-17/bin` |
+| `BM_PG_DUMP_BIN`, `BM_PSQL_BIN` | from `PG_BIN_DIR` | Full-path overrides |
+| `BM_SSH_BIN`, `BM_SSH_KEYGEN_BIN`, `BM_SSH_KEYSCAN_BIN` | names on `$PATH` | SSH tool paths |
+| `BM_SSH_CONNECT_TIMEOUT` | `15` | Seconds to wait for an SSH tunnel to come up |
 | `BM_STAGING_PATH`, `BM_TMP_PATH` | `storage/app/private/backup-manager/{staging,tmp}` | Private work directories (0700). They need free space of roughly 2× the largest compressed dump |
 | `AGE_IDENTITY_FILE` | empty | Optional age private key file for restores. When empty, you paste the key in the wizard |
 | `BM_ZSTD_LEVEL` | `3` | zstd level (1–19) |
@@ -157,6 +178,79 @@ FLUSH PRIVILEGES;
 
 Add the connection under **Connections**. You can use `127.0.0.1:3306` or the socket path (Webuzo usually uses
 `/var/lib/mysql/mysql.sock`), then press **Test**.
+
+---
+
+## 5b. PostgreSQL, and databases on other servers (SSH)
+
+### PostgreSQL client tools on the panel server
+
+`pg_dump` refuses to dump a server with a newer major version, so install the client tools
+for the newest PostgreSQL you back up (or newer) from the official PostgreSQL repository.
+Only the client package is needed, not a server:
+
+```bash
+sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+sudo dnf -qy module disable postgresql
+sudo dnf install -y postgresql17          # client only: pg_dump, psql
+/usr/pgsql-17/bin/pg_dump --version
+```
+
+Then set `PG_BIN_DIR=/usr/pgsql-17/bin` in `.env` and run `php artisan config:cache`.
+
+### PostgreSQL role for the panel
+
+On the PostgreSQL server:
+
+```sql
+CREATE ROLE bm_backup LOGIN PASSWORD 'a-long-random-password';
+-- backups (PostgreSQL 14+): read every table in every database
+GRANT pg_read_all_data TO bm_backup;
+-- restores into a new database
+ALTER ROLE bm_backup CREATEDB;
+```
+
+Dumps keep the original owners and privileges. A restore replays them, so it needs a role
+that may assign those owners: either a superuser (`ALTER ROLE bm_backup SUPERUSER;`), or a
+role that is a member of every owner role. Restores **over** an existing database also end its
+open sessions and drop it, which needs ownership of the database or superuser. If the panel
+role cannot do this, restore into a **new** database and switch the application over by hand.
+
+Make sure `pg_hba.conf` allows the role to log in with a password (`scram-sha-256`) from
+`127.0.0.1`. The SSH tunnel arrives from there.
+
+### Databases on another server (SSH tunnel)
+
+The panel connects to the other server over SSH and forwards one local port to the database.
+The database port stays closed to the internet, and nothing is installed on the other server.
+
+1. **On the other server**, create a user that only exists for the tunnel:
+   ```bash
+   sudo useradd -m -s /sbin/nologin bmtunnel
+   sudo install -d -m 700 -o bmtunnel -g bmtunnel /home/bmtunnel/.ssh
+   ```
+2. **In the panel**, add a connection: driver, database host/port **as seen from that server**
+   (usually `127.0.0.1` and `5432` / `3306`), database user and password. Turn on
+   **Connect through SSH** and enter the server address, SSH port and `bmtunnel`. Save.
+3. The connection card shows an `authorized_keys` line that starts with
+   `restrict,port-forwarding,permitopen="127.0.0.1:5432"`. Put that line into
+   `/home/bmtunnel/.ssh/authorized_keys` on the other server:
+   ```bash
+   sudo nano /home/bmtunnel/.ssh/authorized_keys      # paste the line
+   sudo chown bmtunnel:bmtunnel /home/bmtunnel/.ssh/authorized_keys
+   sudo chmod 600 /home/bmtunnel/.ssh/authorized_keys
+   sudo restorecon -Rv /home/bmtunnel/.ssh           # SELinux (AlmaLinux)
+   ```
+   With these options the key can only open a tunnel to that one address. It cannot run
+   commands, open a shell or forward anywhere else.
+4. Press **Test**. The first test pins the server's SSH host key and shows its fingerprint.
+   Compare it with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on that server. After
+   that the panel refuses to connect if the key changes. If you reinstall the server, edit the
+   connection and choose "Forget the pinned host key".
+5. Press **Refresh** to discover the databases, include them, and add the connection to a plan.
+
+If `sshd_config` has `AllowUsers` or `AllowGroups`, add `bmtunnel` there. `AllowTcpForwarding`
+must not be `no`.
 
 ---
 
@@ -285,6 +379,16 @@ mariadb -e "CREATE DATABASE shop_recovered CHARACTER SET utf8mb4 COLLATE utf8mb4
 age -d -i kreethya-backup.key shop__20260923-020000__scheduled.sql.zst.age \
   | zstd -dc | mariadb shop_recovered
 ```
+
+For a PostgreSQL backup, replace the last line with:
+
+```bash
+createdb -T template0 -E UTF8 shop_recovered
+age -d -i kreethya-backup.key shop__*.sql.zst.age | zstd -dc | psql -v ON_ERROR_STOP=1 --single-transaction -d shop_recovered
+```
+
+The manifest's `engine` field says which kind of dump a file is (`pgsql`, or `mariadb`/`mysql`;
+missing in older manifests means MariaDB).
 
 On a new server, install the panel, add the old destinations, then use **System settings → Rebuild catalog**.
 All old backups then appear in the restore wizard.

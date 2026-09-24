@@ -25,6 +25,13 @@ use Illuminate\Support\Carbon;
  * @property string $username
  * @property string|null $password
  * @property string|null $socket
+ * @property bool $ssh_enabled
+ * @property string|null $ssh_host
+ * @property int $ssh_port
+ * @property string|null $ssh_user
+ * @property string|null $ssh_private_key
+ * @property string|null $ssh_public_key
+ * @property string|null $ssh_host_key known_hosts lines pinned by the first successful test
  * @property NewDatabasePolicy $new_database_policy
  * @property bool $is_active
  * @property Carbon|null $last_tested_at
@@ -41,10 +48,11 @@ class ServerConnection extends Model
 
     protected $fillable = [
         'name', 'driver', 'host', 'port', 'username', 'password', 'socket',
+        'ssh_enabled', 'ssh_host', 'ssh_port', 'ssh_user',
         'new_database_policy', 'is_active',
     ];
 
-    protected $hidden = ['password'];
+    protected $hidden = ['password', 'ssh_private_key'];
 
     protected function casts(): array
     {
@@ -52,6 +60,9 @@ class ServerConnection extends Model
             'driver' => ConnectionDriver::class,
             'port' => 'integer',
             'password' => 'encrypted',
+            'ssh_enabled' => 'boolean',
+            'ssh_port' => 'integer',
+            'ssh_private_key' => 'encrypted',
             'new_database_policy' => NewDatabasePolicy::class,
             'is_active' => 'boolean',
             'last_tested_at' => 'datetime',
@@ -76,6 +87,26 @@ class ServerConnection extends Model
     public function backupPlans(): HasMany
     {
         return $this->hasMany(BackupPlan::class, 'connection_id');
+    }
+
+    public function usesSsh(): bool
+    {
+        return $this->ssh_enabled && $this->ssh_host !== null && $this->ssh_host !== '';
+    }
+
+    /**
+     * The line to add to ~/.ssh/authorized_keys on the remote server. The
+     * options limit the key to one port forward to the database port.
+     */
+    public function sshAuthorizedKeysLine(): ?string
+    {
+        if ($this->ssh_public_key === null || $this->ssh_public_key === '') {
+            return null;
+        }
+
+        $target = (str_contains($this->host, ':') ? '['.$this->host.']' : $this->host).':'.$this->port;
+
+        return 'restrict,port-forwarding,permitopen="'.$target.'" '.trim($this->ssh_public_key);
     }
 
     public function hasBackupHistory(): bool

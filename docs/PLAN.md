@@ -72,7 +72,7 @@ All tables have `id` and timestamps unless noted. The **(enc)** columns use Lara
 
 | Table | Columns (beyond the spec) / notes |
 |---|---|
-| `connections` | name, driver enum (`mariadb`,`mysql`; `pgsql` reserved), host, port, username, password **(enc)**, socket?, `new_database_policy` enum (`auto_include`,`pending`), is_active, last_tested_at, last_test_status, last_test_message |
+| `connections` | name, driver enum (`mariadb`,`mysql`,`pgsql`), ssh_* tunnel fields (see D25), host, port, username, password **(enc)**, socket?, `new_database_policy` enum (`auto_include`,`pending`), is_active, last_tested_at, last_test_status, last_test_message |
 | `databases` | connection_id, name, state enum (`included`,`excluded`,`pending`), state_source enum (`manual`,`rule`,`policy`), size_bytes, table_count, default_charset, default_collation, first_seen_at, last_seen_at, missing_since?, last_success_backup_file_id? (denormalised for the dashboard). Unique (connection_id, name) |
 | `selection_rules` | connection_id, type (`include`/`exclude`), pattern (glob), priority (lower number = evaluated first), is_active |
 | `destinations` | name, type enum (`local`,`sftp`,`s3`; later `google_drive`,`ftp`, `onedrive`), config **(enc json)**, base_path, is_active, last_tested_at, last_test_status, last_test_message, free_space_bytes?, used_bytes? |

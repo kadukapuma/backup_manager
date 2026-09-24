@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 $mariadbBinDir = rtrim((string) env('MARIADB_BIN_DIR', ''), '/');
 $mariadbBin = static fn (string $name): string => $mariadbBinDir !== '' ? $mariadbBinDir.'/'.$name : $name;
+$pgBinDir = rtrim((string) env('PG_BIN_DIR', ''), '/');
+$pgBin = static fn (string $name): string => $pgBinDir !== '' ? $pgBinDir.'/'.$name : $name;
 
 return [
 
@@ -18,6 +20,19 @@ return [
         'age' => env('BM_AGE_BIN', 'age'),
         'rclone' => env('BM_RCLONE_BIN', 'rclone'),
         'sha256sum' => env('BM_SHA256SUM_BIN', 'sha256sum'),
+        'pg_dump' => env('BM_PG_DUMP_BIN', $pgBin('pg_dump')),
+        'psql' => env('BM_PSQL_BIN', $pgBin('psql')),
+        'ssh' => env('BM_SSH_BIN', 'ssh'),
+        'ssh_keygen' => env('BM_SSH_KEYGEN_BIN', 'ssh-keygen'),
+        'ssh_keyscan' => env('BM_SSH_KEYSCAN_BIN', 'ssh-keyscan'),
+    ],
+
+    /*
+    | SSH tunnels to remote database servers. Seconds to wait for the tunnel's
+    | local port to accept connections.
+    */
+    'ssh' => [
+        'connect_timeout' => (int) env('BM_SSH_CONNECT_TIMEOUT', 15),
     ],
 
     /*
@@ -87,7 +102,8 @@ return [
         'password' => env('ADMIN_PASSWORD'),
     ],
 
-    'system_databases' => ['information_schema', 'performance_schema', 'mysql', 'sys'],
+    // MariaDB/MySQL system schemas, plus PostgreSQL's maintenance and template databases.
+    'system_databases' => ['information_schema', 'performance_schema', 'mysql', 'sys', 'postgres', 'template0', 'template1'],
 
     'app_version' => env('APP_VERSION', 'unknown'),
 ];

@@ -40,7 +40,7 @@ class RestoreController extends Controller
         $this->authorize('create', RestoreJob::class);
 
         $selected = $request->integer('database') ?: null;
-        $database = $selected !== null ? Database::query()->with('serverConnection:id,name')->find($selected) : null;
+        $database = $selected !== null ? Database::query()->with('serverConnection:id,name,driver')->find($selected) : null;
 
         $databases = Database::query()
             ->with('serverConnection:id,name')
@@ -78,6 +78,15 @@ class RestoreController extends Controller
                 ])->all(),
             ])->all();
 
+        // The newest backup says which engine made the dumps; catalog imports sit under a placeholder connection.
+        $newest = $database === null ? null : BackupFile::query()
+            ->where('database_id', $database->id)
+            ->where('status', BackupFileStatus::Success->value)
+            ->latest('id')
+            ->first()
+            ?->setRelation('database', $database);
+        $isPostgres = $database === null ? null : ($newest?->engine() ?? $database->serverConnection->driver)->isPostgres();
+
         return Inertia::render('restores/create', [
             'databases' => $databases,
             'database' => $database === null ? null : [
@@ -88,7 +97,10 @@ class RestoreController extends Controller
             ],
             'timeline' => $timeline,
             'preselectedFile' => $request->integer('file') ?: null,
-            'connections' => ServerConnection::query()->where('is_active', true)->orderBy('name')->get(['id', 'name'])
+            // Only servers of the same engine family can take the dump.
+            'connections' => ServerConnection::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'driver'])
+                ->filter(fn (ServerConnection $c): bool => $isPostgres === null || $c->driver->isPostgres() === $isPostgres)
+                ->values()
                 ->map(fn (ServerConnection $c): array => ['value' => (string) $c->id, 'label' => $c->name]),
             'identityFileConfigured' => (string) config('backup-manager.age_identity_file') !== '',
             'suggestedName' => $database === null ? null : substr($database->name.'_restore_'.now()->format('Ymd'), 0, 64),

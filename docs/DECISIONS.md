@@ -156,3 +156,51 @@ connection called "Imported (unassigned)", so their backups can still be restore
 any active connection with "new copy". Imported copies are `uploaded` (not `verified`)
 until they are checked again. Each rebuild is recorded as a run whose summary holds the
 counts and the skip reasons.
+
+## D24. PostgreSQL dumps
+- `pg_dump --format=plain | zstd`, the same shape as MariaDB, so staging, encryption,
+  verification, retention, catalog and restore work unchanged. Plain SQL ends with
+  `-- PostgreSQL database dump complete`, which is the level-1 completeness check. (The custom
+  format would allow parallel restores but has no reliable end marker to check before
+  encryption; see ROADMAP.)
+- Owners and privileges are kept in the dump, so a restore on the same server gives back an
+  identical database. Restoring therefore needs a role that may assign those owners.
+- Metadata comes from `psql` (unaligned output), not `pdo_pgsql`, so the panel's PHP needs no
+  extra extension. Table counts use `pg_class` (relkind `r`/`p`) because
+  `information_schema.tables` hides tables the role has no rights on.
+- The password is passed in a temporary 0600 `PGPASSFILE`, never on a command line or in
+  `PGPASSWORD`. `-w` makes psql fail instead of prompting.
+- Restores: end the sessions on the database (`pg_terminate_backend`), `DROP DATABASE`,
+  `CREATE DATABASE … TEMPLATE template0` with the manifest's encoding and locale (each as a
+  separate `-c`, because these cannot run in a transaction), then import with
+  `psql -v ON_ERROR_STOP=1 --single-transaction`. A failed statement rolls back the whole import.
+- `postgres`, `template0` and `template1` count as system databases and are never backed up.
+- Manifests record `engine`. A backup is only restored into a connection of the same family
+  (PostgreSQL vs MariaDB/MySQL); the wizard only lists matching servers and the request checks it.
+
+## D25. SSH tunnels to other servers
+- Pull model: the panel opens `ssh -N -L 127.0.0.1:<free port>:<db host>:<db port>` for each
+  operation (test, discovery, dump, recreate, import, table count) and closes it afterwards.
+  The database code gets a copy of the connection that points at the local port, so the
+  MariaDB and PostgreSQL code paths are the same with and without SSH.
+- Per connection, the panel generates an ed25519 key with `ssh-keygen`. The private key is
+  stored with the `encrypted` cast (APP_KEY) and written to a 0600 temp file only while ssh
+  runs. The UI shows an `authorized_keys` line with
+  `restrict,port-forwarding,permitopen="<db host>:<db port>"`, so a stolen key can only reach
+  that one port.
+- Host keys: trust on first use. The first **Test** runs `ssh-keyscan` and stores the keys;
+  every tunnel then runs with `StrictHostKeyChecking=yes` and only that known_hosts file.
+  Changing the SSH host or port forgets the pinned keys; so does the "forget" switch in the form.
+- ssh runs with `-F /dev/null`, `BatchMode=yes`, `IdentitiesOnly=yes`, `IdentityAgent=none`,
+  `ExitOnForwardFailure=yes` and keep-alives, so user config, agents and prompts never change
+  what happens.
+- Readiness check: ssh binds the local port only after authentication, so the panel waits until
+  it can no longer bind that port itself. It never connects to the port, because MariaDB counts
+  half-open connections against `max_connect_errors`. If another process takes the port in the
+  meantime, it retries with a new port.
+- Unix sockets are not supported through SSH; use the host/port as seen from the SSH server.
+
+## D26. Why not an agent (yet)
+For servers the operator controls, SSH needs nothing installed on the target and no inbound
+port besides SSH. An agent that dumps locally and uploads directly to storage is the answer
+for servers behind NAT or with very large databases, and is on the roadmap.

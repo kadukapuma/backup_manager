@@ -31,12 +31,15 @@ final class ManifestBuilder
         string $md5,
         array $toolVersions,
         string $ageRecipient,
+        string $engine = 'mariadb',
     ): array {
         return [
             'format_version' => self::FORMAT_VERSION,
             'filename' => $filename,
             'database' => $database->name,
             'connection' => $connectionName,
+            // mariadb / mysql (mariadb-dump SQL) or pgsql (pg_dump plain SQL). Absent in older manifests = mariadb.
+            'engine' => $engine,
             'created_at' => $createdAt->format(DATE_ATOM),
             'trigger' => $trigger->value,
             'size_bytes' => $sizeBytes,

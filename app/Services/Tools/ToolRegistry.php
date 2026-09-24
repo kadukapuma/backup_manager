@@ -23,7 +23,15 @@ class ToolRegistry
         'age' => ['--version'],
         'rclone' => ['version'],
         'sha256sum' => ['--version'],
+        'pg_dump' => ['--version'],
+        'psql' => ['--version'],
+        'ssh' => ['-V'],
     ];
+
+    /**
+     * Only needed for PostgreSQL connections or connections over SSH.
+     */
+    private const OPTIONAL = ['pg_dump', 'psql', 'ssh'];
 
     public function path(string $tool): string
     {
@@ -31,7 +39,17 @@ class ToolRegistry
     }
 
     /**
-     * @return list<array{tool: string, path: string, found: bool, version: string|null, error: string|null}>
+     * Major version of the installed pg_dump, or null when it is missing.
+     */
+    public function pgDumpMajorVersion(): ?int
+    {
+        $version = $this->checkTool('pg_dump')['version'];
+
+        return $version !== null && preg_match('/\)\s*(\d+)/', $version, $m) === 1 ? (int) $m[1] : null;
+    }
+
+    /**
+     * @return list<array{tool: string, path: string, found: bool, optional: bool, version: string|null, error: string|null}>
      */
     public function check(): array
     {
@@ -53,7 +71,7 @@ class ToolRegistry
     public function versions(): array
     {
         $versions = [];
-        foreach (['mariadb_dump', 'zstd', 'age', 'rclone'] as $tool) {
+        foreach (['mariadb_dump', 'pg_dump', 'zstd', 'age', 'rclone'] as $tool) {
             $versions[$tool] = $this->checkTool($tool)['version'];
         }
 
@@ -61,16 +79,17 @@ class ToolRegistry
     }
 
     /**
-     * @return array{tool: string, path: string, found: bool, version: string|null, error: string|null}
+     * @return array{tool: string, path: string, found: bool, optional: bool, version: string|null, error: string|null}
      */
     public function checkTool(string $tool): array
     {
         $path = $this->path($tool);
+        $optional = in_array($tool, self::OPTIONAL, true);
 
         try {
             $result = Process::timeout(15)->run([$path, ...self::VERSION_ARGS[$tool]]);
         } catch (Throwable $e) {
-            return ['tool' => $tool, 'path' => $path, 'found' => false, 'version' => null, 'error' => $e->getMessage()];
+            return ['tool' => $tool, 'path' => $path, 'found' => false, 'optional' => $optional, 'version' => null, 'error' => $e->getMessage()];
         }
 
         $output = trim($result->output()."\n".$result->errorOutput());
@@ -80,6 +99,7 @@ class ToolRegistry
             'tool' => $tool,
             'path' => $path,
             'found' => $result->successful(),
+            'optional' => $optional,
             'version' => $result->successful() ? $firstLine : null,
             'error' => $result->successful() ? null : ($firstLine !== '' ? $firstLine : 'Exit code '.$result->exitCode()),
         ];
@@ -88,7 +108,7 @@ class ToolRegistry
     /**
      * Pipelines run through /bin/sh with "set -o pipefail"; the shell must support it.
      *
-     * @return array{tool: string, path: string, found: bool, version: string|null, error: string|null}
+     * @return array{tool: string, path: string, found: bool, optional: bool, version: string|null, error: string|null}
      */
     private function checkPipefail(): array
     {
@@ -96,13 +116,14 @@ class ToolRegistry
             $result = Process::timeout(10)->run('set -o pipefail && false | true');
             $ok = $result->exitCode() === 1;
         } catch (Throwable $e) {
-            return ['tool' => 'sh pipefail', 'path' => '/bin/sh', 'found' => false, 'version' => null, 'error' => $e->getMessage()];
+            return ['tool' => 'sh pipefail', 'path' => '/bin/sh', 'found' => false, 'optional' => false, 'version' => null, 'error' => $e->getMessage()];
         }
 
         return [
             'tool' => 'sh pipefail',
             'path' => '/bin/sh',
             'found' => $ok,
+            'optional' => false,
             'version' => $ok ? 'supported' : null,
             'error' => $ok ? null : '/bin/sh does not support "set -o pipefail" (use bash as /bin/sh).',
         ];

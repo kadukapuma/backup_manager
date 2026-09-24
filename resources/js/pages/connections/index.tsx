@@ -14,7 +14,7 @@ import { timeAgo } from '@/lib/format';
 import { type BreadcrumbItem, type Option } from '@/types';
 import { type ConnectionRow, type NewDatabasePolicyValue } from '@/types/models';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { Pencil, PlugZap, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Copy, KeyRound, Pencil, PlugZap, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { FormEventHandler, useState } from 'react';
 
 interface Props {
@@ -31,9 +31,16 @@ type ConnectionForm = {
     username: string;
     password: string;
     socket: string;
+    ssh_enabled: boolean;
+    ssh_host: string;
+    ssh_port: number;
+    ssh_user: string;
+    ssh_forget_host_key: boolean;
     new_database_policy: NewDatabasePolicyValue;
     is_active: boolean;
 };
+
+const DEFAULT_PORTS: Record<string, number> = { mariadb: 3306, mysql: 3306, pgsql: 5432 };
 
 const EMPTY: ConnectionForm = {
     name: '',
@@ -43,9 +50,72 @@ const EMPTY: ConnectionForm = {
     username: 'backup',
     password: '',
     socket: '',
+    ssh_enabled: false,
+    ssh_host: '',
+    ssh_port: 22,
+    ssh_user: '',
+    ssh_forget_host_key: false,
     new_database_policy: 'pending',
     is_active: true,
 };
+
+function driverLabel(driver: string): string {
+    return driver === 'pgsql' ? 'PostgreSQL' : driver === 'mysql' ? 'MySQL' : 'MariaDB';
+}
+
+function CopyButton({ text }: { text: string }) {
+    const [copied, setCopied] = useState(false);
+
+    return (
+        <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+                void navigator.clipboard?.writeText(text).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                });
+            }}
+        >
+            {copied ? <Check className="size-4" /> : <Copy className="size-4" />} {copied ? 'Copied' : 'Copy'}
+        </Button>
+    );
+}
+
+function SshSetup({ c }: { c: ConnectionRow }) {
+    return (
+        <div className="bg-muted/50 space-y-2 rounded-md border p-3 text-xs">
+            <p className="flex items-center gap-1 font-medium">
+                <KeyRound className="size-3.5" /> SSH access on {c.ssh_host}
+            </p>
+            {c.ssh_authorized_keys_line && (
+                <>
+                    <p className="text-muted-foreground">
+                        Add this line to <span className="font-mono">~{c.ssh_user}/.ssh/authorized_keys</span> on that server. The key can only open a
+                        tunnel to {c.host}:{c.port}, nothing else.
+                    </p>
+                    <pre className="bg-background max-h-24 overflow-auto rounded border p-2 font-mono text-[11px] break-all whitespace-pre-wrap">
+                        {c.ssh_authorized_keys_line}
+                    </pre>
+                    <CopyButton text={c.ssh_authorized_keys_line} />
+                </>
+            )}
+            {c.ssh_host_key_fingerprints.length > 0 ? (
+                <div className="text-muted-foreground">
+                    Pinned host key:
+                    {c.ssh_host_key_fingerprints.map((f) => (
+                        <div key={f} className="font-mono break-all">
+                            {f}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-amber-600">Host key not pinned yet. Press Test after adding the key line.</p>
+            )}
+        </div>
+    );
+}
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Connections', href: '/connections' }];
 
@@ -78,6 +148,11 @@ export default function ConnectionsIndex({ connections, drivers, policies }: Pro
             username: c.username,
             password: '',
             socket: c.socket ?? '',
+            ssh_enabled: c.ssh_enabled,
+            ssh_host: c.ssh_host ?? '',
+            ssh_port: c.ssh_port,
+            ssh_user: c.ssh_user ?? '',
+            ssh_forget_host_key: false,
             new_database_policy: c.new_database_policy,
             is_active: c.is_active,
         });
@@ -105,7 +180,7 @@ export default function ConnectionsIndex({ connections, drivers, policies }: Pro
             <div className="flex flex-col gap-4 p-4">
                 <PageHeader
                     title="Connections"
-                    description="Database servers to back up. Use a dedicated MariaDB user with read-only backup privileges."
+                    description="Database servers to back up: MariaDB, MySQL or PostgreSQL, on this server or on another one through SSH."
                     actions={
                         canManage && (
                             <Button onClick={openCreate}>
@@ -118,7 +193,7 @@ export default function ConnectionsIndex({ connections, drivers, policies }: Pro
                 {connections.length === 0 && (
                     <Card>
                         <CardContent className="text-muted-foreground py-10 text-center text-sm">
-                            No connections yet. Add your MariaDB server to start discovering databases.
+                            No connections yet. Add a database server to start discovering databases.
                         </CardContent>
                     </Card>
                 )}
@@ -131,8 +206,13 @@ export default function ConnectionsIndex({ connections, drivers, policies }: Pro
                                     <div className="min-w-0 space-y-1">
                                         <CardTitle className="truncate text-base">{c.name}</CardTitle>
                                         <CardDescription className="truncate font-mono text-xs">
-                                            {c.username}@{c.socket ? c.socket : `${c.host}:${c.port}`}
+                                            {driverLabel(c.driver)} · {c.username}@{c.socket ? c.socket : `${c.host}:${c.port}`}
                                         </CardDescription>
+                                        {c.ssh_enabled && (
+                                            <CardDescription className="truncate font-mono text-xs">
+                                                via SSH {c.ssh_user}@{c.ssh_host}:{c.ssh_port}
+                                            </CardDescription>
+                                        )}
                                     </div>
                                     <div className="flex shrink-0 gap-1">
                                         {!c.is_active && <StatusBadge status="inactive" />}
@@ -165,8 +245,9 @@ export default function ConnectionsIndex({ connections, drivers, policies }: Pro
                                         </span>
                                     </p>
                                     <p>Last discovery: {timeAgo(c.last_discovered_at)}</p>
-                                    {c.last_test_message && <p className="line-clamp-2 break-all">{c.last_test_message}</p>}
+                                    {c.last_test_message && <p className="line-clamp-3 break-all">{c.last_test_message}</p>}
                                 </div>
+                                {c.ssh_enabled && canManage && <SshSetup c={c} />}
                                 <div className="flex flex-wrap gap-2">
                                     {canManage && (
                                         <Button size="sm" variant="secondary" disabled={busy === c.id} onClick={() => post('connections.test', c.id)}>
@@ -212,7 +293,19 @@ export default function ConnectionsIndex({ connections, drivers, policies }: Pro
                                 <Input id="name" value={form.data.name} onChange={(e) => form.setData('name', e.target.value)} required />
                             </FormField>
                             <FormField id="driver" label="Driver" error={form.errors.driver} className="col-span-2 sm:col-span-1">
-                                <NativeSelect id="driver" value={form.data.driver} onChange={(e) => form.setData('driver', e.target.value)}>
+                                <NativeSelect
+                                    id="driver"
+                                    value={form.data.driver}
+                                    onChange={(e) => {
+                                        const driver = e.target.value;
+                                        const keepPort = form.data.port !== DEFAULT_PORTS[form.data.driver];
+                                        form.setData({
+                                            ...form.data,
+                                            driver,
+                                            port: keepPort ? form.data.port : (DEFAULT_PORTS[driver] ?? form.data.port),
+                                        });
+                                    }}
+                                >
                                     {drivers.map((d) => (
                                         <option key={d.value} value={d.value}>
                                             {d.label}
@@ -231,20 +324,75 @@ export default function ConnectionsIndex({ connections, drivers, policies }: Pro
                                     onChange={(e) => form.setData('port', Number(e.target.value))}
                                 />
                             </FormField>
-                            <FormField
-                                id="socket"
-                                label="Unix socket (optional)"
-                                error={form.errors.socket}
-                                className="col-span-2"
-                                hint="Used instead of host/port when set."
-                            >
-                                <Input
+                            {!form.data.ssh_enabled && (
+                                <FormField
                                     id="socket"
-                                    placeholder="/var/lib/mysql/mysql.sock"
-                                    value={form.data.socket}
-                                    onChange={(e) => form.setData('socket', e.target.value)}
+                                    label="Unix socket (optional)"
+                                    error={form.errors.socket}
+                                    className="col-span-2"
+                                    hint={
+                                        form.data.driver === 'pgsql'
+                                            ? 'The socket directory, used instead of host when set.'
+                                            : 'Used instead of host/port when set.'
+                                    }
+                                >
+                                    <Input
+                                        id="socket"
+                                        placeholder={form.data.driver === 'pgsql' ? '/var/run/postgresql' : '/var/lib/mysql/mysql.sock'}
+                                        value={form.data.socket}
+                                        onChange={(e) => form.setData('socket', e.target.value)}
+                                    />
+                                </FormField>
+                            )}
+                            <label className="col-span-2 flex items-center gap-2 text-sm">
+                                <Switch
+                                    checked={form.data.ssh_enabled}
+                                    onCheckedChange={(v) => form.setData({ ...form.data, ssh_enabled: v, socket: v ? '' : form.data.socket })}
                                 />
-                            </FormField>
+                                Connect through SSH (database on another server)
+                            </label>
+                            {form.data.ssh_enabled && (
+                                <>
+                                    <p className="text-muted-foreground col-span-2 -mt-2 text-xs">
+                                        Host and port above are the database as seen <strong>from the SSH server</strong>, usually 127.0.0.1. The
+                                        panel creates an SSH key for this connection and shows the line to install after you save.
+                                    </p>
+                                    <FormField id="ssh_host" label="SSH server" error={form.errors.ssh_host} className="col-span-2 sm:col-span-1">
+                                        <Input
+                                            id="ssh_host"
+                                            placeholder="203.0.113.20"
+                                            value={form.data.ssh_host}
+                                            onChange={(e) => form.setData('ssh_host', e.target.value)}
+                                        />
+                                    </FormField>
+                                    <FormField id="ssh_port" label="SSH port" error={form.errors.ssh_port} className="col-span-2 sm:col-span-1">
+                                        <Input
+                                            id="ssh_port"
+                                            type="number"
+                                            value={form.data.ssh_port}
+                                            onChange={(e) => form.setData('ssh_port', Number(e.target.value))}
+                                        />
+                                    </FormField>
+                                    <FormField id="ssh_user" label="SSH user" error={form.errors.ssh_user} className="col-span-2">
+                                        <Input
+                                            id="ssh_user"
+                                            autoComplete="off"
+                                            placeholder="bmtunnel"
+                                            value={form.data.ssh_user}
+                                            onChange={(e) => form.setData('ssh_user', e.target.value)}
+                                        />
+                                    </FormField>
+                                    {editing && editing.ssh_host_key_fingerprints.length > 0 && (
+                                        <label className="col-span-2 flex items-center gap-2 text-sm">
+                                            <Switch
+                                                checked={form.data.ssh_forget_host_key}
+                                                onCheckedChange={(v) => form.setData('ssh_forget_host_key', v)}
+                                            />
+                                            Forget the pinned host key (only if the server was reinstalled)
+                                        </label>
+                                    )}
+                                </>
+                            )}
                             <FormField id="username" label="Username" error={form.errors.username} className="col-span-2 sm:col-span-1">
                                 <Input
                                     id="username"
