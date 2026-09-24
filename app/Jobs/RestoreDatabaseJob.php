@@ -32,7 +32,7 @@ use Throwable;
 /**
  * Restores one backup file:
  * lock → safety backup (if the target exists) → download → SHA-256 check →
- * recreate database → age -d | zstd -dc | mariadb → table-count post-check.
+ * recreate database → age -d | zstd -dc | mariadb/psql → table-count post-check.
  */
 class RestoreDatabaseJob implements ShouldQueue
 {
@@ -102,8 +102,8 @@ class RestoreDatabaseJob implements ShouldQueue
             $pipeline->recreateDatabase(
                 $connection,
                 $restore->target_database,
-                (string) ($manifest['default_charset'] ?? $file->database->default_charset ?? 'utf8mb4'),
-                (string) ($manifest['default_collation'] ?? $file->database->default_collation ?? 'utf8mb4_unicode_ci'),
+                $manifest['default_charset'] ?? $file->database->default_charset,
+                $manifest['default_collation'] ?? $file->database->default_collation,
                 $this->log,
             );
             $pipeline->import($connection, $restore->target_database, $encrypted, $identityPath, $this->log);

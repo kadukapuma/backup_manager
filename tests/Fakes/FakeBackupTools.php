@@ -16,8 +16,17 @@ class FakeBackupTools
     /** @var array<string, array{size: int, sha256: string}> remote spec => object */
     public array $remote = [];
 
-    /** @var list<array{command: string|array, env: array<string, string>, cnf: string|null}> */
+    /** @var list<array{command: string|array, env: array<string, string>, cnf: string|null, pgpass: string|null}> */
     public array $pipelines = [];
+
+    /** @var list<list<string>> every argument-list command, in order */
+    public array $commands = [];
+
+    /** @var list<list<string>> psql and mariadb calls with SQL (-c / -e) */
+    public array $sqlCalls = [];
+
+    /** A known_hosts line that ssh-keyscan "prints". */
+    public const HOST_KEY_LINE = '[203.0.113.20]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl';
 
     public bool $dumpFails = false;
 
@@ -54,10 +63,12 @@ class FakeBackupTools
 
         if (is_string($cmd)) {
             $cnfPath = $env['BM_CNF'] ?? null;
+            $pgPass = $env['PGPASSFILE'] ?? null;
             $this->pipelines[] = [
                 'command' => $cmd,
                 'env' => $env,
                 'cnf' => $cnfPath !== null && is_file($cnfPath) ? (string) file_get_contents($cnfPath) : null,
+                'pgpass' => $pgPass !== null && is_file($pgPass) ? (string) file_get_contents($pgPass) : null,
             ];
 
             if (str_contains($cmd, '${:BM_DUMP}')) {
@@ -91,11 +102,25 @@ class FakeBackupTools
             return Process::result('');
         }
 
+        $this->commands[] = $cmd;
         $bin = basename((string) $cmd[0]);
         $args = array_slice($cmd, 1);
 
-        if (in_array('-e', $args, true)) {
+        if (in_array('-e', $args, true) || ($bin === 'psql' && in_array('-c', $args, true))) {
             $this->sequence[] = 'sql';
+            $this->sqlCalls[] = $cmd;
+        }
+
+        if ($bin === 'ssh-keygen') {
+            $path = $args[array_search('-f', $args, true) + 1];
+            file_put_contents($path, "-----BEGIN OPENSSH PRIVATE KEY-----\nFAKE-PRIVATE-KEY\n-----END OPENSSH PRIVATE KEY-----\n");
+            file_put_contents($path.'.pub', "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakePublicKey backup-manager\n");
+
+            return Process::result('');
+        }
+
+        if ($bin === 'ssh-keyscan') {
+            return Process::result(self::HOST_KEY_LINE."\n", '# 203.0.113.20:2222 SSH-2.0-OpenSSH_8.7');
         }
 
         if (in_array('--version', $args, true) || ($bin === 'rclone' && ($args[0] ?? '') === 'version')) {

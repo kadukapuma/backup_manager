@@ -21,6 +21,12 @@ export interface ConnectionRow {
     username: string;
     password_set: boolean;
     socket: string | null;
+    ssh_enabled: boolean;
+    ssh_host: string | null;
+    ssh_port: number;
+    ssh_user: string | null;
+    ssh_authorized_keys_line: string | null;
+    ssh_host_key_fingerprints: string[];
     new_database_policy: NewDatabasePolicyValue;
     is_active: boolean;
     last_tested_at: string | null;

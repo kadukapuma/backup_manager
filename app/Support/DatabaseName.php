@@ -22,7 +22,7 @@ final class DatabaseName
     public static function isSystem(string $name): bool
     {
         /** @var list<string> $system */
-        $system = config('backup-manager.system_databases', ['information_schema', 'performance_schema', 'mysql', 'sys']);
+        $system = config('backup-manager.system_databases', ['information_schema', 'performance_schema', 'mysql', 'sys', 'postgres', 'template0', 'template1']);
 
         return in_array(strtolower($name), $system, true);
     }
@@ -59,5 +59,15 @@ final class DatabaseName
         self::assertBackupable($name);
 
         return '`'.$name.'`';
+    }
+
+    /**
+     * Double-quoted PostgreSQL identifier (keeps upper-case letters as they are).
+     */
+    public static function pgQuoted(string $name): string
+    {
+        self::assertBackupable($name);
+
+        return '"'.$name.'"';
     }
 }

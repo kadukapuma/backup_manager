@@ -1,4 +1,7 @@
-# Roadmap (after Phase 1)
+# Roadmap
+
+Built in Phase 2: PostgreSQL support (`pg_dump` / `psql`) and remote database servers over an
+SSH tunnel (see D24–D26 in DECISIONS.md).
 
 Designed for, not built yet:
 
@@ -6,8 +9,11 @@ Designed for, not built yet:
 - FTP destination.
 - Telegram notifications (`notification_channels.type = telegram` is reserved).
 - Automatic weekly test restores (`verification_runs.level = test_restore`).
-- PostgreSQL support (`ConnectionDriver::Pgsql`: `pg_dump` / `psql` adapters).
-- Remote database servers over an SSH tunnel.
+- PostgreSQL `--format=custom` dumps with parallel `pg_restore -j` for very large databases, and a
+  `pg_dumpall --globals-only` backup of roles per server.
+- Per-connection restore that skips owners/privileges (`--no-owner`) for restoring into a server
+  where the original roles do not exist.
+- Agent mode for servers the panel cannot reach over SSH (behind NAT), uploading directly to storage.
 - Website file backups (directories, not databases).
 - MariaDB binlog point-in-time recovery.
 - Multi-tenant SaaS mode.

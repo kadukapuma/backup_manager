@@ -10,10 +10,12 @@ use App\Enums\AuditAction;
 use App\Enums\ConnectionDriver;
 use App\Enums\DatabaseState;
 use App\Enums\NewDatabasePolicy;
+use App\Exceptions\BackupException;
 use App\Http\Requests\Connections\SaveConnectionRequest;
 use App\Jobs\DiscoverDatabasesJob;
 use App\Models\ServerConnection;
 use App\Services\Audit\AuditLogger;
+use App\Services\Ssh\SshHostKeys;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -45,7 +47,15 @@ class ConnectionController extends Controller
 
     public function store(SaveConnectionRequest $request, SaveConnection $action): RedirectResponse
     {
-        $connection = $action->handle($request->validated());
+        try {
+            $connection = $action->handle($request->validated());
+        } catch (BackupException $e) {
+            return back()->withErrors(['ssh_host' => $e->getMessage()])->withInput();
+        }
+        if ($connection->usesSsh()) {
+            return back()->with('success', 'Connection saved. Install the SSH key line shown on the card, then press Test.');
+        }
+
         DiscoverDatabasesJob::dispatch($connection->id);
 
         return back()->with('success', 'Connection saved. Discovery has been queued.');
@@ -53,7 +63,11 @@ class ConnectionController extends Controller
 
     public function update(SaveConnectionRequest $request, ServerConnection $connection, SaveConnection $action): RedirectResponse
     {
-        $action->handle($request->validated(), $connection);
+        try {
+            $action->handle($request->validated(), $connection);
+        } catch (BackupException $e) {
+            return back()->withErrors(['ssh_host' => $e->getMessage()])->withInput();
+        }
 
         return back()->with('success', 'Connection updated.');
     }
@@ -76,9 +90,16 @@ class ConnectionController extends Controller
     {
         $this->authorize('test', $connection);
 
-        return $action->handle($connection)
-            ? back()->with('success', (string) $connection->last_test_message)
-            : back()->with('error', 'Connection failed: '.$connection->last_test_message);
+        if (! $action->handle($connection)) {
+            return back()->with('error', 'Connection failed: '.$connection->last_test_message);
+        }
+
+        // SSH connections are not discovered on save (the key is not installed yet); start once the tunnel works.
+        if ($connection->usesSsh() && $connection->last_discovered_at === null) {
+            DiscoverDatabasesJob::dispatch($connection->id);
+        }
+
+        return back()->with('success', (string) $connection->last_test_message);
     }
 
     public function discover(ServerConnection $connection): RedirectResponse
@@ -105,6 +126,12 @@ class ConnectionController extends Controller
             'username' => $c->username,
             'password_set' => $c->password !== null && $c->password !== '',
             'socket' => $c->socket,
+            'ssh_enabled' => $c->ssh_enabled,
+            'ssh_host' => $c->ssh_host,
+            'ssh_port' => $c->ssh_port,
+            'ssh_user' => $c->ssh_user,
+            'ssh_authorized_keys_line' => $c->ssh_enabled ? $c->sshAuthorizedKeysLine() : null,
+            'ssh_host_key_fingerprints' => SshHostKeys::fingerprints($c->ssh_host_key),
             'new_database_policy' => $c->new_database_policy->value,
             'is_active' => $c->is_active,
             'last_tested_at' => $c->last_tested_at?->toIso8601String(),
